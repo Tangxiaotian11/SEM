@@ -49,14 +49,14 @@ def standard_differentiation_matrix(P: int):
     :return: Dˢᵢⱼ[i,j]
     """
     nodes, _, vandermonde = standard_nodes(P)
-    Ds = np.zeros((P+1, P+1))
+    D_s = np.zeros((P+1, P+1))
     for i in range(P+1):
         for j in range(P+1):
             if i != j:
-                Ds[i, j] = vandermonde[i, -1]/vandermonde[j, -1] * 1/(nodes[i]-nodes[j])
-    Ds[0, 0] = -P*(P+1)/4
-    Ds[-1, -1] = P*(P+1)/4
-    return Ds
+                D_s[i, j] = vandermonde[i, -1]/vandermonde[j, -1] * 1/(nodes[i]-nodes[j])
+    D_s[0, 0] = -P*(P+1)/4
+    D_s[-1, -1] = P*(P+1)/4
+    return D_s
 
 
 def standard_gradient_matrix(P: int):
@@ -65,9 +65,9 @@ def standard_gradient_matrix(P: int):
     :param P: polynomial order
     :return: Gˢᵢⱼ[i,j]
     """
-    Ds = standard_differentiation_matrix(P)
-    Ms = standard_mass_matrix(P)
-    return Ms @ Ds
+    D_s = standard_differentiation_matrix(P)
+    M_s = standard_mass_matrix(P)
+    return M_s @ D_s
 
 
 def standard_convection_matrix(P: int):
@@ -76,6 +76,7 @@ def standard_convection_matrix(P: int):
     :param P: polynomial order
     :return: Cˢᵢⱼₖ[i,j,k]
     """
-    Ds = standard_differentiation_matrix(P)
-    Ms = standard_mass_matrix(P)
-    return np.einsum('ij,ik->ijk', Ms, Ds)
+    D_s = standard_differentiation_matrix(P)
+    M_s = standard_mass_matrix(P)
+    return np.einsum('ij,ik->ijk', M_s, D_s)
+
