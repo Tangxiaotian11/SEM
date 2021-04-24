@@ -35,7 +35,7 @@ def standard_nodes(P: int):
 
 def standard_mass_matrix(P: int):
     """
-    Returns standard mass matrix ∫ ℓᵢℓⱼ dξ\n
+    Returns standard mass matrix Mˢᵢⱼ=∫ℓᵢℓⱼdξ\n
     :param P: polynomial order
     :return: Mˢᵢⱼ[i,j]
     """
@@ -44,7 +44,7 @@ def standard_mass_matrix(P: int):
 
 def standard_differentiation_matrix(P: int):
     """
-    Returns standard differentiation matrix ℓ'ⱼ(ξᵢ)\n
+    Returns standard differentiation matrix Dˢᵢⱼ=ℓ'ⱼ(ξᵢ)\n
     :param P: polynomial order
     :return: Dˢᵢⱼ[i,j]
     """
@@ -61,7 +61,7 @@ def standard_differentiation_matrix(P: int):
 
 def standard_gradient_matrix(P: int):
     """
-    Returns standard convection matrix ∫ ℓᵢℓ'ⱼ dξ\n
+    Returns standard convection matrix Gˢᵢⱼ=∫ℓᵢℓ'ⱼdξ\n
     :param P: polynomial order
     :return: Gˢᵢⱼ[i,j]
     """
@@ -72,7 +72,7 @@ def standard_gradient_matrix(P: int):
 
 def standard_convection_matrix(P: int):
     """
-    Returns standard convection matrix ∫ ℓᵢℓⱼℓ'ₖ dξ\n
+    Returns standard convection matrix Cˢᵢⱼₖ=∫ℓᵢℓⱼℓ'ₖdξ\n
     :param P: polynomial order
     :return: Cˢᵢⱼₖ[i,j,k]
     """

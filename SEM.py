@@ -1,5 +1,5 @@
 """
-GALERKIN spectral element method
+Continuous GALERKIN spectral element method
 """
 import numpy as np
 import scipy.interpolate as sp_interp
@@ -48,7 +48,7 @@ def element_nodes(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float):
     :param N_ey: ... in y direction
     :param D_x: element width in x direction
     :param D_y: ... in y direction
-    :return: (xᵐⁿₖₗ, yᵐⁿₖₗ)[m,n,k,l]
+    :return: (xᵐⁿₖₗ[m,n,k,l], yᵐⁿₖₗ[m,n,k,l])
     """
     x_e1d = element_nodes_1d(P, N_ex, D_x)
     y_e1d = element_nodes_1d(P, N_ey, D_y)
@@ -67,14 +67,14 @@ def global_nodes(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float):
     :param N_ey: ... in y direction
     :param D_x: element width in x direction
     :param D_y: ... in y direction
-    :return: (xₚ, yₚ)[p]
+    :return: (xₚ[p], yₚ[p])
     """
-    x = global_nodes_1d(P, N_ex, D_x)
-    y = global_nodes_1d(P, N_ey, D_y)
-    return np.reshape(np.array(np.meshgrid(x, y, indexing='ij')), (2, x.size*y.size))
+    x_1d = global_nodes_1d(P, N_ex, D_x)
+    y_1d = global_nodes_1d(P, N_ey, D_y)
+    return np.reshape(np.array(np.meshgrid(x_1d, y_1d, indexing='ij')), (2, x_1d.size*y_1d.size))
 
 
-def assemble(A_e: np.ndarray):  # TODO parallel implementation urgently needed
+def assemble(A_e: np.ndarray):  # TODO sparse and parallel implementation urgently needed
     """
     Returns global matrix/vector from element array\n
     :param A_e: element array Aᵐⁿᵢⱼᵣₛₖₗ[m,n,i,j,r,s,k,l] or Aᵐⁿᵢⱼₖₗ[m,n,i,j,k,l] or Aᵐⁿᵢⱼ[m,n,i,j]
@@ -233,10 +233,10 @@ def global_convection_matrices(P: int, N_ex: int, N_ey: int, D_x: float, D_y: fl
 
 def eval_interpolation(u_e: np.ndarray, points_e: np.ndarray, points_plot):
     """
-    Returns the evaluation of u in the points x_plot\n
+    Returns the evaluation of u in the points points_plot\n
     :param u_e: element coefficients array uᵐⁿₖₗ[m,n,i,j]
-    :param points_e: element nodes (xᵐⁿₖₗ,yᵐⁿₖₗ)[m,n,k,l]
-    :param points_plot: evaluation points (xᵢⱼ,yᵢⱼ)[i,j]
+    :param points_e: element nodes (xᵐⁿₖₗ[m,n,k,l],yᵐⁿₖₗ[m,n,k,l])
+    :param points_plot: evaluation points (xᵢⱼ[i,j],yᵢⱼ[i,j])
     """
     N_ex = u_e.shape[0]
     N_ey = u_e.shape[1]
