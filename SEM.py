@@ -1,12 +1,15 @@
 """
 Continuous GALERKIN spectral element method
 """
+import typing
 import numpy as np
-import scipy.interpolate as sp_interp
 import GLL
+import scipy.interpolate as sp_interp
+import scipy.sparse as sp_sparse
+import sparse  # this package is exclusively used for three dimensional sparse matrices, i.e. the convection matrices
 
 
-def xi2x(e, xi, D_x):
+def xi2x(e: int, xi: float, D_x: float) -> float:
     """
     Returns physical coordinate x from standard coordinate xi in element e\n
     :param e: element number
@@ -42,13 +45,13 @@ def global_nodes_1d(P: int, N_ex: int, D_x: float):
 
 def element_nodes(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float):
     """
-    Returns element nodes\n
+    Returns element nodes array\n
     :param P: polynomial order
     :param N_ex: num of elements in x direction
     :param N_ey: ... in y direction
     :param D_x: element width in x direction
     :param D_y: ... in y direction
-    :return: (xᵐⁿₖₗ[m,n,k,l], yᵐⁿₖₗ[m,n,k,l])
+    :return: [xᵐⁿₖₗ[m,n,k,l], yᵐⁿₖₗ[m,n,k,l]]
     """
     x_e1d = element_nodes_1d(P, N_ex, D_x)
     y_e1d = element_nodes_1d(P, N_ey, D_y)
@@ -61,20 +64,20 @@ def element_nodes(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float):
 
 def global_nodes(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float):
     """
-    Returns global nodes vector\n
+    Returns global nodes vectors\n
     :param P: polynomial order
     :param N_ex: num of elements in x direction
     :param N_ey: ... in y direction
     :param D_x: element width in x direction
     :param D_y: ... in y direction
-    :return: (xₚ[p], yₚ[p])
+    :return: [xₚ[p], yₚ[p]]
     """
     x_1d = global_nodes_1d(P, N_ex, D_x)
     y_1d = global_nodes_1d(P, N_ey, D_y)
     return np.reshape(np.array(np.meshgrid(x_1d, y_1d, indexing='ij')), (2, x_1d.size*y_1d.size))
 
 
-def assemble(A_e: np.ndarray):  # TODO sparse and parallel implementation urgently needed
+def assemble(A_e: np.ndarray):  # TODO parallel implementation possible
     """
     Returns global matrix/vector from element array\n
     :param A_e: element array Aᵐⁿᵢⱼᵣₛₖₗ[m,n,i,j,r,s,k,l] or Aᵐⁿᵢⱼₖₗ[m,n,i,j,k,l] or Aᵐⁿᵢⱼ[m,n,i,j]
@@ -86,33 +89,18 @@ def assemble(A_e: np.ndarray):  # TODO sparse and parallel implementation urgent
     def p(m, n, i, j):
         return n*P+j + (N_ey*P+1) * (m*P+i)
 
-    if A_e.ndim == 4:
-        A = np.zeros((P*N_ex+1)*(P*N_ey+1))
-        for m in range(N_ex):
-            for n in range(N_ey):
-                for i in range(P+1):
-                    for j in range(P+1):
-                        A[p(m, n, i, j)] += A_e[m, n, i, j]
+    # if A_e.ndim == 4: TODO one-part element array
     if A_e.ndim == 6:
-        A = np.zeros(((P*N_ex+1)*(P*N_ey+1),)*2)
-        for m in range(N_ex):
-            for n in range(N_ey):
-                for i in range(P+1):
-                    for j in range(P+1):
-                        for k in range(P+1):
-                            for l in range(P+1):
-                                A[p(m, n, i, j), p(m, n, k, l)] += A_e[m, n, i, j, k, l]
+        (m, n, i, j, k, l) = np.nonzero(A_e)
+        coords = np.vstack((p(m, n, i, j), p(m, n, k, l)))
+        data = A_e[m, n, i, j, k, l]
+        A = sp_sparse.coo_matrix((data, coords), shape=((P*N_ex+1)*(P*N_ey+1),)*2)
+        A = A.tocsr()
     if A_e.ndim == 8:
-        A = np.zeros(((P*N_ex+1)*(P*N_ey+1),)*3)
-        for m in range(N_ex):
-            for n in range(N_ey):
-                for i in range(P+1):
-                    for j in range(P+1):
-                        for r in range(P+1):
-                            for s in range(P+1):
-                                for k in range(P+1):
-                                    for l in range(P+1):
-                                        A[p(m, n, i, j), p(m, n, r, s), p(m, n, k, l)] += A_e[m, n, i, j, r, s, k, l]
+        (m, n, i, j, r, s, k, l) = np.nonzero(A_e)
+        coords = np.vstack((p(m, n, i, j), p(m, n, r, s), p(m, n, k, l)))
+        data = A_e[m, n, i, j, r, s, k, l]
+        A = sparse.COO(coords, data, shape=((P*N_ex+1)*(P*N_ey+1),)*3)
     return A
 
 
@@ -166,9 +154,9 @@ def element_stiffness_matrix_1d(P: int, N_ex: int, D_x: float):
     return np.einsum('m,ik->mik', 2/D_x*np.ones(N_ex), D_s.transpose() @ M_s @ D_s)
 
 
-def global_mass_matrix(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float):
+def global_mass_matrix(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float) -> sp_sparse.csr_matrix:
     """
-    Returns global mass matrix\n
+    Returns global mass matrix in scipy-CSR format\n
     :param P: polynomial order
     :param N_ex: num of elements in x direction
     :param N_ey: ... in y direction
@@ -180,9 +168,9 @@ def global_mass_matrix(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float):
     return assemble(np.einsum('mik,njl->mnijkl', M_ex, M_ey, optimize=True))
 
 
-def global_stiffness_matrix(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float):
+def global_stiffness_matrix(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float) -> sp_sparse.csr_matrix:
     """
-    Returns global stiffness matrix\n
+    Returns global stiffness matrix in scipy-CSR format\n
     :param P: polynomial order
     :param N_ex: num of elements in x direction
     :param N_ey: ... in y direction
@@ -197,9 +185,10 @@ def global_stiffness_matrix(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float
                   + np.einsum('mik,njl->mnijkl', M_ex, K_ey, optimize=True))
 
 
-def global_gradient_matrices(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float):
+def global_gradient_matrices(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float) \
+        -> typing.Tuple[sp_sparse.csr_matrix, sp_sparse.csr_matrix]:
     """
-    Returns global gradient matrices\n
+    Returns global gradient matrices in scipy-CSR format\n
     :param P: polynomial order
     :param N_ex: num of elements in x direction
     :param N_ey: ... in y direction
@@ -214,9 +203,12 @@ def global_gradient_matrices(P: int, N_ex: int, N_ey: int, D_x: float, D_y: floa
            assemble(np.einsum('mik,n,jl->mnijkl', M_ex, np.ones(N_ex), G_s, optimize=True))
 
 
-def global_convection_matrices(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float):
+def global_convection_matrices(P: int, N_ex: int, N_ey: int, D_x: float, D_y: float) \
+        -> typing.Tuple[sparse.COO, sparse.COO]:
     """
-    Returns global gradient matrices\n
+    Returns global gradient matrices in sparse-COO format\n
+    To return (C_x @ u) in scipy-CSR format perform 'sparse.tensordot(C_x,u,(2,0),return_type=sparse.COO).tocsr()'\n
+    To return (u @ C_x) in scipy-CSR format perform 'sparse.tensordot(C_x,u,(1,0),return_type=sparse.COO).tocsr()'\n
     :param P: polynomial order
     :param N_ex: num of elements in x direction
     :param N_ey: ... in y direction
@@ -231,12 +223,13 @@ def global_convection_matrices(P: int, N_ex: int, N_ey: int, D_x: float, D_y: fl
            assemble(np.einsum('rk,nik,m,jsl->mnijrskl', np.identity(P+1), M_ex, np.ones(N_ex), C_s, optimize=True))
 
 
-def eval_interpolation(u_e: np.ndarray, points_e: np.ndarray, points_plot):
+def eval_interpolation(u_e: np.ndarray, points_e: np.ndarray, points_plot: typing.Tuple[np.ndarray, np.ndarray]):
     """
     Returns the evaluation of u in the points points_plot\n
     :param u_e: element coefficients array uᵐⁿₖₗ[m,n,i,j]
-    :param points_e: element nodes (xᵐⁿₖₗ[m,n,k,l],yᵐⁿₖₗ[m,n,k,l])
+    :param points_e: element nodes array [xᵐⁿₖₗ[m,n,k,l],yᵐⁿₖₗ[m,n,k,l]]
     :param points_plot: evaluation points (xᵢⱼ[i,j],yᵢⱼ[i,j])
+    :return: u(xᵢⱼ,yᵢⱼ)[i,j]
     """
     N_ex = u_e.shape[0]
     N_ey = u_e.shape[1]

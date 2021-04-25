@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.sparse.linalg as sp_sparse_linalg
 import SEM
 import matplotlib.pyplot as plt
 
@@ -16,9 +17,9 @@ u(x,L_y) = u_N(x) ∀x∈[0,L_x]
 L_x = 2     # length in x direction
 L_y = 1     # length in y direction
 lam = 1     # HELMHOLTZ parameter
-P = 3       # polynomial order
-N_ex = 1    # num of elements in x direction
-N_ey = 2    # num of elements in y direction
+P = 4       # polynomial order
+N_ex = 2    # num of elements in x direction
+N_ey = 3    # num of elements in y direction
 exact = lambda x,y: np.sin(x/L_x*np.pi)*np.sin(y/L_y*2*np.pi) + x/L_x + y/L_y  # exact solution
 f = lambda x,y: exact(x, y)*lam + ((np.pi/L_x)**2+(2*np.pi/L_y)**2)*np.sin(x/L_x*np.pi)*np.sin(y/L_y*2*np.pi)  # f(x,y)
 u_W = lambda y: y/L_y      # DIRICHLET boundary condition at x=0
@@ -55,7 +56,9 @@ u[ind_dirichlet] = dirichlet[ind_dirichlet]  # set known solution
 g -= H[:, ind_dirichlet] @ dirichlet[ind_dirichlet]  # bring columns on RHS
 g = g[~ind_dirichlet]  # skip rows
 H = H[~ind_dirichlet, :][:, ~ind_dirichlet]  # skip rows/cols
-u[~ind_dirichlet] = np.linalg.solve(H, g)  # solve on free indices
+u[~ind_dirichlet], info = sp_sparse_linalg.cg(H, g)  # solve on free indices
+if info != 0:
+    raise RuntimeError('CG failed to converge')
 
 # scatter for plot
 u_e = SEM.scatter(u, P, N_ex, N_ey)

@@ -1,4 +1,7 @@
 import numpy as np
+import scipy.sparse.linalg as sp_sparse_linalg
+import scipy.sparse as sp_sparse
+import sparse  # this package is exclusively used for three dimensional sparse matrices, i.e. the convection matrices
 import SEM
 import matplotlib.pyplot as plt
 
@@ -19,12 +22,12 @@ Possible reference solutions from GHIA (doi.org/10.1016/0021-9991(82)90058-4).
 # setup
 L_x = 1     # length in x direction
 L_y = 1     # length in y direction
-Re = 1e2    # REYNOLDS number
-P = 5       # polynomial order
-N_ex = 4    # num of elements in x direction
-N_ey = 4    # num of elements in y direction
-D_t = 1e-3  # step size in time
-tol = 1e-3  # tolerance for stationarity such that max(‖Δu‖∞,‖Δv‖∞) < tol
+Re = 4e2    # REYNOLDS number
+P = 6       # polynomial order
+N_ex = 5    # num of elements in x direction
+N_ey = 5    # num of elements in y direction
+D_t = 2e-4  # step size in time
+tol = 1e-2  # tolerance for stationarity such that max(‖Δu‖∞,‖Δv‖∞) < tol
 v_W = 0     # tangential velocity at x=0
 v_E = 0     # tangential velocity at x=L_x
 u_S = 0     # tangential velocity at y=0
@@ -37,13 +40,13 @@ points = SEM.global_nodes(P, N_ex, N_ey, D_x, D_y)
 points_e = SEM.element_nodes(P, N_ex, N_ey, D_x, D_y)
 
 # matrices
+M = SEM.global_mass_matrix(P, N_ex, N_ey, D_x, D_y)
+M_inv = sp_sparse.diags(1/M.diagonal()).tocsr()
+K = SEM.global_stiffness_matrix(P, N_ex, N_ey, D_x, D_y)
 G_x, G_y = SEM.global_gradient_matrices(P, N_ex, N_ey, D_x, D_y)
 C_x, C_y = SEM.global_convection_matrices(P, N_ex, N_ey, D_x, D_y)
-M = SEM.global_mass_matrix(P, N_ex, N_ey, D_x, D_y)
-M_inv = np.diag(1/np.diag(M))
-K = SEM.global_stiffness_matrix(P, N_ex, N_ey, D_x, D_y)
 
-# dirichlet condition vectors
+# DIRICHLET condition vectors
 dirichlet_u = np.full(points.shape[1], np.nan)
 dirichlet_v = np.full(points.shape[1], np.nan)
 dirichlet_phi = np.full(points.shape[1], np.nan)
@@ -55,7 +58,7 @@ dirichlet_v[np.isclose(points[0], 0)] = v_W
 dirichlet_v[np.isclose(points[0], L_x)] = v_E
 dirichlet_v[np.isclose(points[1], 0)] = 0
 dirichlet_v[np.isclose(points[1], L_y)] = 0
-dirichlet_phi[0] = 0  # reference pseudo pressure at south-east corner
+# dirichlet_phi[0] = 0  # reference pseudo pressure at south-east corner; required if a direct solver would be used
 
 # initial condition
 u = np.zeros(points.shape[1])
@@ -72,7 +75,9 @@ def solve_with_dirichlet(A, b, dirichlet):
     b -= A[:, ind_dirichlet] @ dirichlet[ind_dirichlet]  # bring columns on RHS
     b = b[~ind_dirichlet]  # skip rows
     A = A[~ind_dirichlet, :][:, ~ind_dirichlet]  # skip rows/cols
-    x[~ind_dirichlet] = np.linalg.solve(A, b)  # solve on free indices
+    x[~ind_dirichlet], info = sp_sparse_linalg.gmres(A, b, tol=1e-4)  # solve on free indices
+    if info != 0:
+        raise RuntimeError('GMRES failed to converge')
     return x
 
 
@@ -81,7 +86,8 @@ n = 0
 while res > tol:
     n += 1
     # pressure-correction method; Convection term OSEEN like
-    Conv = Re * (u @ C_x + v @ C_y)
+    Conv = Re * (sparse.tensordot(C_x, u, (1, 0), return_type=sparse.COO).tocsr()
+               + sparse.tensordot(C_y, v, (1, 0), return_type=sparse.COO).tocsr())  # i.e. = Re*(u @ C_x + v @ C_y)
     u_pre = solve_with_dirichlet(1/D_t*M + 0.5*Conv + 0.5*K, (1/D_t*M - 0.5*Conv - 0.5*K) @ u, dirichlet_u)
     v_pre = solve_with_dirichlet(1/D_t*M + 0.5*Conv + 0.5*K, (1/D_t*M - 0.5*Conv - 0.5*K) @ v, dirichlet_v)
     phi = solve_with_dirichlet(K, -1/D_t * (G_x @ u_pre + G_y @ v_pre), dirichlet_phi)
@@ -97,12 +103,12 @@ u_e = SEM.scatter(u, P, N_ex, N_ey)
 v_e = SEM.scatter(v, P, N_ex, N_ey)
 
 # plot
-x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 51), np.linspace(0, L_y, 51), indexing='ij')
+x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 101), np.linspace(0, L_y, 101), indexing='ij')
 u_plot = SEM.eval_interpolation(u_e, points_e, (x_plot, y_plot))
 v_plot = SEM.eval_interpolation(v_e, points_e, (x_plot, y_plot))
 fig = plt.figure(figsize=(L_x*4, L_y*4))
 ax = fig.gca()
-ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=2)
+ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=3)
 ax.set_title(f"Re={Re:.0e}, P={P}, N_ex={N_ex}, N_ey={N_ey}, D_t={D_t:.0e}, tol={tol:.0e}", fontsize='small')
 ax.set_xlabel('x')
 ax.set_ylabel('y')
