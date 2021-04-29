@@ -16,6 +16,7 @@ u(t,x,0)   = u_S ∀t>0, x∈[0,L_x]
 u(t,x,L_y) = u_N ∀t>0, x∈[0,L_x]
 Temporal discretization is performed using the pressure-correction method from KIM-MOIN
 (doi.org/10.1016/0021-9991(85)90148-2).
+Backend solver is SciPy.
 Possible reference solutions from GHIA (doi.org/10.1016/0021-9991(82)90058-4).
 """
 
@@ -26,7 +27,7 @@ Re = 4e2    # REYNOLDS number
 P = 6       # polynomial order
 N_ex = 5    # num of elements in x direction
 N_ey = 5    # num of elements in y direction
-D_t = 2e-4  # step size in time
+dt = 2e-4   # step size in time
 tol = 1e-2  # tolerance for stationarity such that max(‖Δu‖∞,‖Δv‖∞) < tol
 v_W = 0     # tangential velocity at x=0
 v_E = 0     # tangential velocity at x=L_x
@@ -34,17 +35,17 @@ u_S = 0     # tangential velocity at y=0
 u_N = 1     # tangential velocity at y=L_y
 
 # grid
-D_x = L_x / N_ex
-D_y = L_y / N_ey
-points = SEM.global_nodes(P, N_ex, N_ey, D_x, D_y)
-points_e = SEM.element_nodes(P, N_ex, N_ey, D_x, D_y)
+dx = L_x / N_ex
+dy = L_y / N_ey
+points = SEM.global_nodes(P, N_ex, N_ey, dx, dy)
+points_e = SEM.element_nodes(P, N_ex, N_ey, dx, dy)
 
 # matrices
-M = SEM.global_mass_matrix(P, N_ex, N_ey, D_x, D_y)
+M = SEM.global_mass_matrix(P, N_ex, N_ey, dx, dy)
 M_inv = sp_sparse.diags(1/M.diagonal()).tocsr()
-K = SEM.global_stiffness_matrix(P, N_ex, N_ey, D_x, D_y)
-G_x, G_y = SEM.global_gradient_matrices(P, N_ex, N_ey, D_x, D_y)
-C_x, C_y = SEM.global_convection_matrices(P, N_ex, N_ey, D_x, D_y)
+K = SEM.global_stiffness_matrix(P, N_ex, N_ey, dx, dy)
+G_x, G_y = SEM.global_gradient_matrices(P, N_ex, N_ey, dx, dy)
+C_x, C_y = SEM.global_convection_matrices(P, N_ex, N_ey, dx, dy)
 
 # DIRICHLET condition vectors
 dirichlet_u = np.full(points.shape[1], np.nan)
@@ -88,13 +89,13 @@ while res > tol:
     # pressure-correction method; Convection term OSEEN like
     Conv = Re * (sparse.tensordot(C_x, u, (1, 0), return_type=sparse.COO).tocsr()
                + sparse.tensordot(C_y, v, (1, 0), return_type=sparse.COO).tocsr())  # i.e. = Re*(u @ C_x + v @ C_y)
-    u_pre = solve_with_dirichlet(1/D_t*M + 0.5*Conv + 0.5*K, (1/D_t*M - 0.5*Conv - 0.5*K) @ u, dirichlet_u)
-    v_pre = solve_with_dirichlet(1/D_t*M + 0.5*Conv + 0.5*K, (1/D_t*M - 0.5*Conv - 0.5*K) @ v, dirichlet_v)
-    phi = solve_with_dirichlet(K, -1/D_t * (G_x @ u_pre + G_y @ v_pre), dirichlet_phi)
-    u_new = u_pre - D_t * M_inv @ G_x @ phi
-    v_new = v_pre - D_t * M_inv @ G_y @ phi
-    res = max(np.max(np.abs(u_new - u)), np.max(np.abs(v_new - v)))/D_t
-    print(f"t = {n*D_t:.3e}; lg(res) = {np.log10(res)}")
+    u_pre = solve_with_dirichlet(1/dt*M + 0.5*Conv + 0.5*K, (1/dt*M - 0.5*Conv - 0.5*K) @ u, dirichlet_u)
+    v_pre = solve_with_dirichlet(1/dt*M + 0.5*Conv + 0.5*K, (1/dt*M - 0.5*Conv - 0.5*K) @ v, dirichlet_v)
+    phi = solve_with_dirichlet(K, -1/dt * (G_x @ u_pre + G_y @ v_pre), dirichlet_phi)
+    u_new = u_pre - dt * M_inv @ G_x @ phi
+    v_new = v_pre - dt * M_inv @ G_y @ phi
+    res = max(np.max(np.abs(u_new - u)), np.max(np.abs(v_new - v)))/dt
+    print(f"t = {n*dt:.3e}; lg(res) = {np.log10(res)}")
     u = u_new.copy()
     v = v_new.copy()
 
@@ -109,7 +110,7 @@ v_plot = SEM.eval_interpolation(v_e, points_e, (x_plot, y_plot))
 fig = plt.figure(figsize=(L_x*4, L_y*4))
 ax = fig.gca()
 ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=3)
-ax.set_title(f"Re={Re:.0e}, P={P}, N_ex={N_ex}, N_ey={N_ey}, D_t={D_t:.0e}, tol={tol:.0e}", fontsize='small')
+ax.set_title(f"Re={Re:.0e}, P={P}, N_ex={N_ex}, N_ey={N_ey}, dt={dt:.0e}, tol={tol:.0e}", fontsize='small')
 ax.set_xlabel('x')
 ax.set_ylabel('y')
 plt.show()

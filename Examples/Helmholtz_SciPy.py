@@ -11,6 +11,7 @@ u(0,y)   = u_W(y) ∀y∈[0,L_y]
 u(L_x,y) = u_E(y) ∀y∈[0,L_y]
 u(x,0)   = u_S(x) ∀x∈[0,L_x]
 u(x,L_y) = u_N(x) ∀x∈[0,L_x]
+Backend solver is SciPy.
 """
 
 # setup
@@ -28,16 +29,16 @@ u_S = lambda x: x/L_x      # DIRICHLET boundary condition at y=0
 u_N = lambda x: x/L_x + 1  # DIRICHLET boundary condition at y=L_y
 
 # grid
-D_x = L_x / N_ex
-D_y = L_y / N_ey
-points = SEM.global_nodes(P, N_ex, N_ey, D_x, D_y)
-x_1d = SEM.global_nodes_1d(P, N_ex, D_x)
-y_1d = SEM.global_nodes_1d(P, N_ey, D_y)
-points_e = SEM.element_nodes(P, N_ex, N_ey, D_x, D_y)
+dx = L_x / N_ex
+dy = L_y / N_ey
+points = SEM.global_nodes(P, N_ex, N_ey, dx, dy)
+x_1d = SEM.global_nodes_1d(P, N_ex, dx)
+y_1d = SEM.global_nodes_1d(P, N_ey, dy)
+points_e = SEM.element_nodes(P, N_ex, N_ey, dx, dy)
 
 # matrices
-M = SEM.global_mass_matrix(P, N_ex, N_ey, D_x, D_y)
-K = SEM.global_stiffness_matrix(P, N_ex, N_ey, D_x, D_y)
+M = SEM.global_mass_matrix(P, N_ex, N_ey, dx, dy)
+K = SEM.global_stiffness_matrix(P, N_ex, N_ey, dx, dy)
 H = lam * M + K
 # RHS vector
 g = M @ f(points[0], points[1])
