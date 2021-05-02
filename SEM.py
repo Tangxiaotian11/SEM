@@ -93,9 +93,10 @@ def global_index(P: int, N_ex: int, N_ey: int, m: int, n: int, i: int, j: int) -
     return n*P+j + (N_ey*P+1) * (m*P+i)
 
 
-def assemble(A_e: np.ndarray):  # TODO parallel implementation possible
+def assemble(A_e: np.ndarray):
     """
-    Returns global matrix/vector from element array.\n
+    Returns global matrix/vector from element array.
+    1d/2d/3d arrays are returned in NumPy-array/SciPy-CSR/Sparse-COO format respectively\n
     :param A_e: element array Aᵐⁿᵢⱼᵣₛₖₗ[m,n,i,j,r,s,k,l] or Aᵐⁿᵢⱼₖₗ[m,n,i,j,k,l] or Aᵐⁿᵢⱼ[m,n,i,j]
     """
     N_ex = A_e.shape[0]
@@ -167,7 +168,7 @@ def element_stiffness_matrix_1d(P: int, N_ex: int, dx: float):
 
 def global_mass_matrix(P: int, N_ex: int, N_ey: int, dx: float, dy: float) -> sp_sparse.csr_matrix:
     """
-    Returns global mass matrix in scipy-CSR format.\n
+    Returns global mass matrix in SciPy-CSR format.\n
     :param P: polynomial order
     :param N_ex: num of elements in x direction
     :param N_ey: ... in y direction
@@ -182,7 +183,7 @@ def global_mass_matrix(P: int, N_ex: int, N_ey: int, dx: float, dy: float) -> sp
 
 def global_stiffness_matrix(P: int, N_ex: int, N_ey: int, dx: float, dy: float) -> sp_sparse.csr_matrix:
     """
-    Returns global stiffness matrix in scipy-CSR format.\n
+    Returns global stiffness matrix in SciPy-CSR format.\n
     :param P: polynomial order
     :param N_ex: num of elements in x direction
     :param N_ey: ... in y direction
@@ -201,7 +202,7 @@ def global_stiffness_matrix(P: int, N_ex: int, N_ey: int, dx: float, dy: float) 
 def global_gradient_matrices(P: int, N_ex: int, N_ey: int, dx: float, dy: float) \
         -> typing.Tuple[sp_sparse.csr_matrix, sp_sparse.csr_matrix]:
     """
-    Returns global gradient matrices in scipy-CSR format.\n
+    Returns global gradient matrices in SciPy-CSR format.\n
     :param P: polynomial order
     :param N_ex: num of elements in x direction
     :param N_ey: ... in y direction
@@ -220,9 +221,9 @@ def global_gradient_matrices(P: int, N_ex: int, N_ey: int, dx: float, dy: float)
 def global_convection_matrices(P: int, N_ex: int, N_ey: int, dx: float, dy: float) \
         -> typing.Tuple[sparse.COO, sparse.COO]:
     """
-    Returns global gradient matrices in sparse-COO format.\n
-    To return (C_x @ u) in scipy-CSR format perform 'sparse.tensordot(C_x,u,(2,0),return_type=sparse.COO).tocsr()'.\n
-    To return (u @ C_x) in scipy-CSR format perform 'sparse.tensordot(C_x,u,(1,0),return_type=sparse.COO).tocsr()'.\n
+    Returns global gradient matrices in Sparse-COO format.\n
+    To return (C_x @ u) in SciPy-CSR format perform 'sparse.tensordot(C_x,u,(2,0),return_type=sparse.COO).tocsr()'.\n
+    To return (u @ C_x) in SciPy-CSR format perform 'sparse.tensordot(C_x,u,(1,0),return_type=sparse.COO).tocsr()'.\n
     :param P: polynomial order
     :param N_ex: num of elements in x direction
     :param N_ey: ... in y direction

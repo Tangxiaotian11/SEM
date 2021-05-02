@@ -62,7 +62,7 @@ class NavierStokes(om.ImplicitComponent):
         self.add_output('pressure', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='pressure as global vector')
         self.add_input('T', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='T as global vector')
 
-        # list of all indices in the global matrices with possible non-zero entries
+        # indices in the global matrices with possible non-zero entries
         Full = SEM.assemble(np.ones((N_ex, N_ey, P+1, P+1, P+1, P+1))).tocoo()
         self.rows, self.cols = Full.row, Full.col
         del Full

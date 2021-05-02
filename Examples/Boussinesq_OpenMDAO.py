@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 Solves the dimensionless steady-state BOUSSINESQ equations for u(x,y), v(x,y) and T(x,y) on (x,y)∈[0,L_x]×[0,L_y]
 Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v] + Gr/Re [0, T]
 ∇∘[u, v] = 0
-Re [u, v]∘∇T = 1/Pr ∇²T
+Pe [u, v]∘∇T = ∇²T
 with isothermal walls and adiabatic floor/ceiling
 T(0,y) = -1/2, T(L_x,y) = 1/2 ∀y∈[0,L_y]
 ∂ₙT(x,0) = ∂ₙT(x,L_y) = 0 ∀x∈[0,L_x]
@@ -41,20 +41,19 @@ v = np.zeros(points.shape[1])
 T = np.zeros(points.shape[1])
 T[np.isclose(points[0], 0)] = -0.5  # initial guess
 T[np.isclose(points[0], L_x)] = 0.5
-u[np.isclose(points[1], L_y)] = 1.
 
 # initialize OpenMDAO solver
 prob = om.Problem()
 model = prob.model
 model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
                                                  P=P, N_ex=N_ex, N_ey=N_ey, points=points, dt=1.e-4))
-model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion(L_x=L_x, L_y=L_y, Re=Re, Pr=Pr,
+model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion(L_x=L_x, L_y=L_y, Pe=Re*Pr,
                                                                P=P, N_ex=N_ex, N_ey=N_ey, points=points))
 model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
 model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=800, atol=tol, rtol=1e-18)
-model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(maxiter=8, rho=0.5, c=0.2)
+model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=5, rho=0.8, c=0.2)
 model.linear_solver = om.ScipyKrylov(iprint=1, atol=1e-4, rtol=1e-18, maxiter=4000, restart=1000)
 prob.setup()
 # om.n2(prob) # prints N2-diagram
@@ -83,7 +82,8 @@ ax = fig.gca()
 ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=2.5)
 CS = ax.contour(x_plot, y_plot, T_plot, levels=11, colors='k', linestyles='solid')
 ax.clabel(CS, inline=True)
-ax.set_title(f"Re={Re:.0e}, Ra={Ra:.0e}, Pr={Pr}, P={P}, N_ex={N_ex}, N_ey={N_ey}, dt={dt:.0e}, tol={tol:.0e}", fontsize='small')
+ax.set_title(f"Re={Re:.0e}, Ra={Ra:.0e}, Pr={Pr}, P={P}, N_ex={N_ex}, N_ey={N_ey}, dt={dt:.0e}, tol={tol:.0e}",
+             fontsize='small')
 ax.set_xlabel('x')
 ax.set_ylabel('y')
 plt.show()

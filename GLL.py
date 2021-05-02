@@ -6,7 +6,7 @@ import numpy as np
 
 def standard_nodes(P: int):
     """
-    Returns quadrature nodes ∈[−1,1], weights, and VANDERMONDE matrix of LEGENDRE polynomials.\n
+    Returns quadrature nodes ∈[-1,1], weights, and VANDERMONDE matrix of LEGENDRE polynomials.\n
     :param P: polynomial order
     :return: ξᵢ[i], wᵢ[i], Pⱼ(ξᵢ)[i,j]
     """

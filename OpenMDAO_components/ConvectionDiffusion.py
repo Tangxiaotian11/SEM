@@ -9,7 +9,7 @@ class ConvectionDiffusion(om.ImplicitComponent):
     """
     Implicit component to solve the steady-state convection-diffusion equation for T(x,y) given the convection
     velocities u(x,y) and v(x,y) on (x,y)∈[0,L_x]×[0,L_y]
-    Re [u, v]∘∇T = 1/Pr ∇²T
+    Pe [u, v]∘∇T = ∇²T
     with either DIRICHLET or NEUMANN conditions
     T(0,y)   = T_W(y) or ∂ₙT(0,y)   = dT_W(y) ∀y∈[0,L_y]
     T(L_x,y) = T_E(y) or ∂ₙT(L_x,y) = dT_E(y) ∀y∈[0,L_y]
@@ -22,8 +22,7 @@ class ConvectionDiffusion(om.ImplicitComponent):
         # declare parameters
         self.options.declare('L_x', types=float, desc='length in x direction')
         self.options.declare('L_y', types=float, desc='length in y direction')
-        self.options.declare('Re', types=float, desc='REYNOLDS number')
-        self.options.declare('Pr', types=float, default=1., desc='PRANDTL number')
+        self.options.declare('Pe', types=float, default=1., desc='PECLET number')
         self.options.declare('P', types=int, desc='polynomial order')
         self.options.declare('N_ex', types=int, desc='num of elements in x direction')
         self.options.declare('N_ey', types=int, desc='num of elements in y direction')
@@ -35,23 +34,18 @@ class ConvectionDiffusion(om.ImplicitComponent):
         # load parameters
         self.L_x = self.options['L_x']
         self.L_y = self.options['L_y']
-        self.Re = self.options['Re']
-        self.Pr = self.options['Pr']
+        self.Pe = self.options['Pe']
         self.points = self.options['points']
         P = self.options['P']
         N_ex = self.options['N_ex']
         N_ey = self.options['N_ey']
-
-        # check singularity
-        if self.Pr == 0:
-            raise ValueError('Cannot have Pr == 0')
 
         # declare variables
         self.add_input('u', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='u as global vector')
         self.add_input('v', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='v as global vector')
         self.add_output('T', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='T as global vector')
 
-        # list of all indices in the global matrices with possible non-zero entries
+        # indices in the global matrices with possible non-zero entries
         Full = SEM.assemble(np.ones((N_ex, N_ey, P+1, P+1, P+1, P+1))).tocoo()
         self.rows, self.cols = Full.row, Full.col
         del Full
@@ -72,11 +66,11 @@ class ConvectionDiffusion(om.ImplicitComponent):
         T = outputs['T']
 
         # left-hand-side multiplication of convection velocities, i.e. Re*(u @ C_x + v @ C_y)
-        Conv = self.Re * (sparse.tensordot(self.C_x, u, (1, 0), return_type=sparse.COO).tocsr()
+        Conv = self.Pe * (sparse.tensordot(self.C_x, u, (1, 0), return_type=sparse.COO).tocsr()
                         + sparse.tensordot(self.C_y, v, (1, 0), return_type=sparse.COO).tocsr())
 
         # system matrix
-        self.Sys = Conv + 1/self.Pr * self.K
+        self.Sys = Conv + self.K
 
         # residuals
         residuals['T'] = self.Sys @ T
@@ -94,8 +88,8 @@ class ConvectionDiffusion(om.ImplicitComponent):
         T = outputs['T']
 
         # right-hand-side multiplication of T, i.e. Re C_x @ T
-        jac_T_u = self.Re * sparse.tensordot(self.C_x, T, (2, 0), return_type=sparse.COO).tocsr()
-        jac_T_v = self.Re * sparse.tensordot(self.C_y, T, (2, 0), return_type=sparse.COO).tocsr()
+        jac_T_u = self.Pe * sparse.tensordot(self.C_x, T, (2, 0), return_type=sparse.COO).tocsr()
+        jac_T_v = self.Pe * sparse.tensordot(self.C_y, T, (2, 0), return_type=sparse.COO).tocsr()
 
         # hand over values on the relevant indices; '.getA1()' to convert from np.matrix to np.array
         partials['T', 'T'] = self.Sys[self.rows, self.cols].getA1()
