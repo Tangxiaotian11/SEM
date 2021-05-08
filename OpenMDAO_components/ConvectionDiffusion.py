@@ -26,7 +26,7 @@ class ConvectionDiffusion(om.ImplicitComponent):
         self.options.declare('P', types=int, desc='polynomial order')
         self.options.declare('N_ex', types=int, desc='num of elements in x direction')
         self.options.declare('N_ey', types=int, desc='num of elements in y direction')
-        self.options.declare('points', types=np.ndarray, desc='points as global vectors (x, y)')
+        self.options.declare('points', types=np.ndarray, desc='points as global vectors [x, y]')
         # TODO DIRICHLET conditions
         # TODO NEUMANN conditions
 
@@ -36,28 +36,28 @@ class ConvectionDiffusion(om.ImplicitComponent):
         self.L_y = self.options['L_y']
         self.Pe = self.options['Pe']
         self.points = self.options['points']
-        P = self.options['P']
-        N_ex = self.options['N_ex']
-        N_ey = self.options['N_ey']
+        self.P = self.options['P']
+        self.N_ex = self.options['N_ex']
+        self.N_ey = self.options['N_ey']
 
         # declare variables
-        self.add_input('u', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='u as global vector')
-        self.add_input('v', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='v as global vector')
-        self.add_output('T', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='T as global vector')
-
-        # indices in the global matrices with possible non-zero entries
-        Full = SEM.assemble(np.ones((N_ex, N_ey, P+1, P+1, P+1, P+1))).tocoo()
-        self.rows, self.cols = Full.row, Full.col
-        del Full
-        self.declare_partials(of='*', wrt='*', rows=self.rows, cols=self.cols)
+        self.add_input('u', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='u as global vector')
+        self.add_input('v', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='v as global vector')
+        self.add_output('T', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='T as global vector')
 
         # global matrices
-        dx = self.L_x / N_ex
-        dy = self.L_x / N_ey
-        self.M = SEM.global_mass_matrix(P, N_ex, N_ey, dx, dy)
-        self.K = SEM.global_stiffness_matrix(P, N_ex, N_ey, dx, dy)
-        self.C_x, self.C_y = SEM.global_convection_matrices(P, N_ex, N_ey, dx, dy)
+        dx = self.L_x / self.N_ex
+        dy = self.L_y / self.N_ey
+        self.M = SEM.global_mass_matrix(self.P, self.N_ex, self.N_ey, dx, dy)
+        self.K = SEM.global_stiffness_matrix(self.P, self.N_ex, self.N_ey, dx, dy)
+        self.C_x, self.C_y = SEM.global_convection_matrices(self.P, self.N_ex, self.N_ey, dx, dy)
         # TODO non-homogeneous NEUMANN conditions
+
+    def setup_partials(self):
+        # indices in the global matrices with possible non-zero entries
+        Full = SEM.assemble(np.ones((self.N_ex, self.N_ey, self.P+1, self.P+1, self.P+1, self.P+1))).tocoo()
+        self.rows, self.cols = Full.row, Full.col
+        self.declare_partials(of='*', wrt='*', rows=self.rows, cols=self.cols)
 
     def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
         # load variables
@@ -65,7 +65,7 @@ class ConvectionDiffusion(om.ImplicitComponent):
         v = inputs['v']
         T = outputs['T']
 
-        # left-hand-side multiplication of convection velocities, i.e. Re*(u @ C_x + v @ C_y)
+        # left-hand-side multiplication of convection velocities, i.e. Pe*(u @ C_x + v @ C_y)
         Conv = self.Pe * (sparse.tensordot(self.C_x, u, (1, 0), return_type=sparse.COO).tocsr()
                         + sparse.tensordot(self.C_y, v, (1, 0), return_type=sparse.COO).tocsr())
 
@@ -87,7 +87,7 @@ class ConvectionDiffusion(om.ImplicitComponent):
         # load variables
         T = outputs['T']
 
-        # right-hand-side multiplication of T, i.e. Re C_x @ T
+        # right-hand-side multiplication of T, i.e. Pe*(C_x @ T)
         jac_T_u = self.Pe * sparse.tensordot(self.C_x, T, (2, 0), return_type=sparse.COO).tocsr()
         jac_T_v = self.Pe * sparse.tensordot(self.C_y, T, (2, 0), return_type=sparse.COO).tocsr()
 

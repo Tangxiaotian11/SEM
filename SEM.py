@@ -103,10 +103,19 @@ def assemble(A_e: np.ndarray):
     N_ey = A_e.shape[1]
     P = A_e.shape[2] - 1
 
-    # if A_e.ndim == 4: TODO one-part element array
+    # The coordinates array will contain duplicates.
+    # In the assembly of the sparse matrices, the duplicates will be summed over.
+
+    if A_e.ndim == 4:
+        (m, n, i, j) = np.nonzero(A_e)
+        coords = global_index(P, N_ex, N_ey, m, n, i, j)
+        data = A_e[m, n, i, j]
+        A = sp_sparse.coo_matrix((data, coords), shape=((P*N_ex+1)*(P*N_ey+1),)*2)
+        A = A.toarray()
     if A_e.ndim == 6:
         (m, n, i, j, k, l) = np.nonzero(A_e)
-        coords = np.vstack((global_index(P, N_ex, N_ey, m, n, i, j), global_index(P, N_ex, N_ey, m, n, k, l)))
+        coords = np.vstack((global_index(P, N_ex, N_ey, m, n, i, j),
+                            global_index(P, N_ex, N_ey, m, n, k, l)))
         data = A_e[m, n, i, j, k, l]
         A = sp_sparse.coo_matrix((data, coords), shape=((P*N_ex+1)*(P*N_ey+1),)*2)
         A = A.tocsr()

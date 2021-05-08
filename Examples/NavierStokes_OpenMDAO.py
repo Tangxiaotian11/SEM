@@ -39,7 +39,7 @@ model = prob.model
 model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, u_N=1.,
                                                  P=P, N_ex=N_ex, N_ey=N_ey, points=points, dt=dt))
 model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=800, atol=tol, rtol=1e-18)
-model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(maxiter=8, rho=0.5, c=0.2)
+model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=5, rho=0.8, c=0.2)
 model.linear_solver = om.ScipyKrylov(iprint=1, atol=1e-4, rtol=1e-18, maxiter=4000, restart=1000)
 prob.setup()
 

@@ -30,7 +30,7 @@ class NavierStokes(om.ImplicitComponent):
         self.options.declare('P', types=int, desc='polynomial order')
         self.options.declare('N_ex', types=int, desc='num of elements in x direction')
         self.options.declare('N_ey', types=int, desc='num of elements in y direction')
-        self.options.declare('points', types=np.ndarray, desc='points as global vectors (x, y)')
+        self.options.declare('points', types=np.ndarray, desc='points as global vectors [x, y]')
         self.options.declare('dt', types=float, desc='step size in time')
         self.options.declare('u_N', types=float, default=0., desc='tangential velocity at y=L_y')
         self.options.declare('u_S', types=float, default=0., desc='tangential velocity at y=0')
@@ -45,9 +45,9 @@ class NavierStokes(om.ImplicitComponent):
         self.dt = self.options['dt']
         self.L_x = self.options['L_x']
         self.L_y = self.options['L_y']
-        P = self.options['P']
-        N_ex = self.options['N_ex']
-        N_ey = self.options['N_ey']
+        self.P = self.options['P']
+        self.N_ex = self.options['N_ex']
+        self.N_ey = self.options['N_ey']
 
         # check singularity
         if self.Re == 0 and self.Gr != 0:
@@ -55,27 +55,26 @@ class NavierStokes(om.ImplicitComponent):
         self.Gr_over_Re = self.Gr/self.Re if self.Re != 0 else 0.
 
         # declare variables
-        self.add_output('u_pre', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='u* as global vector')
-        self.add_output('v_pre', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='v* as global vector')
-        self.add_output('u', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='u as global vector')
-        self.add_output('v', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='v as global vector')
-        self.add_output('pressure', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='pressure as global vector')
-        self.add_input('T', val=np.zeros((N_ex*P+1)*(N_ey*P+1)), desc='T as global vector')
-
-        # indices in the global matrices with possible non-zero entries
-        Full = SEM.assemble(np.ones((N_ex, N_ey, P+1, P+1, P+1, P+1))).tocoo()
-        self.rows, self.cols = Full.row, Full.col
-        del Full
-        self.declare_partials(of='*', wrt='*', rows=self.rows, cols=self.cols)
+        self.add_output('u_pre', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='u* as global vector')
+        self.add_output('v_pre', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='v* as global vector')
+        self.add_output('u', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='u as global vector')
+        self.add_output('v', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='v as global vector')
+        self.add_output('pressure', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='pseudo pressure as global vector')
+        self.add_input('T', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='T as global vector')
 
         # global matrices
-        dx = self.L_x / N_ex
-        dy = self.L_y / N_ey
-        self.M = SEM.global_mass_matrix(P, N_ex, N_ey, dx, dy)
-        self.M_inv = sp_sparse.diags(1/self.M.diagonal()).tocsr()
-        self.K = SEM.global_stiffness_matrix(P, N_ex, N_ey, dx, dy)
-        self.G_x, self.G_y = SEM.global_gradient_matrices(P, N_ex, N_ey, dx, dy)
-        self.C_x, self.C_y = SEM.global_convection_matrices(P, N_ex, N_ey, dx, dy)
+        dx = self.L_x / self.N_ex
+        dy = self.L_y / self.N_ey
+        self.M = SEM.global_mass_matrix(self.P, self.N_ex, self.N_ey, dx, dy)
+        self.K = SEM.global_stiffness_matrix(self.P, self.N_ex, self.N_ey, dx, dy)
+        self.G_x, self.G_y = SEM.global_gradient_matrices(self.P, self.N_ex, self.N_ey, dx, dy)
+        self.C_x, self.C_y = SEM.global_convection_matrices(self.P, self.N_ex, self.N_ey, dx, dy)
+        
+    def setup_partials(self):
+        # indices in the global matrices with possible non-zero entries
+        Full = SEM.assemble(np.ones((self.N_ex, self.N_ey, self.P+1, self.P+1, self.P+1, self.P+1))).tocoo()
+        self.rows, self.cols = Full.row, Full.col
+        self.declare_partials(of='*', wrt='*', rows=self.rows, cols=self.cols)
 
     def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
         # load variables
@@ -97,17 +96,11 @@ class NavierStokes(om.ImplicitComponent):
         self.RHS = -1/self.dt * self.M + 0.5*self.K + 0.5*Conv_stat
 
         # residuals
-        res_u_pre = self.LHS @ u_pre + self.RHS @ u
-        res_v_pre = self.LHS @ v_pre + self.RHS @ v - self.Gr_over_Re * self.M @ T
-        res_pressure = self.K @ pressure + 1/self.dt * (self.G_x @ u_pre + self.G_y @ v_pre)
-        res_u = 1/self.dt * self.M @ (u - u_pre) + self.G_x @ pressure  # =(u - u_corr)/dt
-        res_v = 1/self.dt * self.M @ (v - v_pre) + self.G_y @ pressure
-
-        residuals['u_pre'] = res_u_pre
-        residuals['v_pre'] = res_v_pre
-        residuals['pressure'] = res_pressure
-        residuals['u'] = res_u
-        residuals['v'] = res_v
+        residuals['u_pre'] = self.LHS @ u_pre + self.RHS @ u
+        residuals['v_pre'] = self.LHS @ v_pre + self.RHS @ v - self.Gr_over_Re * self.M @ T
+        residuals['pressure'] = self.K @ pressure + 1/self.dt * (self.G_x @ u_pre + self.G_y @ v_pre)
+        residuals['u'] = 1/self.dt * self.M @ (u - u_pre) + self.G_x @ pressure  # =(u - u_corr)/dt
+        residuals['v'] = 1/self.dt * self.M @ (v - v_pre) + self.G_y @ pressure
 
         # apply DIRICHLET conditions
         ind = np.isclose(self.points[0], 0)  # eastern points
@@ -136,7 +129,8 @@ class NavierStokes(om.ImplicitComponent):
         v = outputs['v']
         T = inputs['T']
 
-        # JACOBI matrices of the predictor equations including chain rule, e.g. C_x @ u
+        # JACOBI matrices of the predictor equations including chain rule,
+        # i.e. right-hand-side multiplication of the velocities, e.g. Re * C_x @ u
         jac_u_pre_u_pre = self.LHS\
                         + 0.5*self.Re * sparse.tensordot(self.C_x, u_pre, (2, 0), return_type=sparse.COO).tocsr()
         jac_v_pre_v_pre = self.LHS\
