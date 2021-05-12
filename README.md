@@ -42,7 +42,7 @@ TODO
 
 ## Usage
 
-Given an exaplary differential equation for 𝑢 with given functions 𝑣₁, 𝑣₂ and 𝑓 on the domain 𝛺, and homogeneous NEUMANN boundary conditions
+Given an exaplary differential equation for 𝑢 with given functions 𝑣₁, 𝑣₂ and 𝑓 in the domain 𝛺, and homogeneous NEUMANN boundary conditions
 
 𝑢 + ∂𝑢/∂𝑥 + ∂𝑢/∂𝑦 + 𝑣₁ ∂𝑢/∂𝑥 + 𝑣₂ ∂𝑢/∂𝑦 = ∇²𝑢 + 𝑓 ∀ (𝑥,𝑦)∈𝛺 and ∂𝑢/∂𝑛 = 0 ∀ (𝑥,𝑦)∈∂𝛺.
 

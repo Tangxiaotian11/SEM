@@ -110,7 +110,7 @@ def assemble(A_e: np.ndarray):
         (m, n, i, j) = np.nonzero(A_e)
         coords = global_index(P, N_ex, N_ey, m, n, i, j)
         data = A_e[m, n, i, j]
-        A = sp_sparse.coo_matrix((data, coords), shape=((P*N_ex+1)*(P*N_ey+1),)*2)
+        A = sp_sparse.coo_matrix((data, coords), shape=((P*N_ex+1)*(P*N_ey+1)))
         A = A.toarray()
     if A_e.ndim == 6:
         (m, n, i, j, k, l) = np.nonzero(A_e)
