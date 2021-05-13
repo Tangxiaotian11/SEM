@@ -6,14 +6,12 @@ import SEM
 import matplotlib.pyplot as plt
 
 """
-Solves the dimensionless time dependent NAVIER-STOKES equations for u(t,x,y) and v(t,x,y)
-∂ₜ[u, v] + Re([u, v]∘∇)[u, v]  = -∇p + ∇²[u, v] ∀t>0, (x,y)∈[0,L_x]×[0,L_y]
-∇∘[u, v] = 0 ∀t>0, (x,y)∈[0,L_x]×[0,L_y]
-with tangential DIRICHLET conditions
-v(t,0,y)   = v_W ∀t>0, y∈[0,L_y]
-v(t,L_x,y) = v_E ∀t>0, y∈[0,L_y]
-u(t,x,0)   = u_S ∀t>0, x∈[0,L_x]
-u(t,x,L_y) = u_N ∀t>0, x∈[0,L_x]
+Solves the dimensionless steady-state NAVIER-STOKES equations for u(x,y) and v(x,y)
+Re([u, v]∘∇)[u, v]  = -∇p + ∇²[u, v] ∀(x,y)∈[0,L_x]×[0,L_y]
+∇∘[u, v] = 0 ∀(x,y)∈[0,L_x]×[0,L_y]
+as lid-driven flow
+u(x,L_y) = 1 ∀x∈[0,L_x]
+The steady-state is found by iterating the time dependent equations as long as necessary.
 Temporal discretization is performed using the pressure-correction method from KIM-MOIN
 (doi.org/10.1016/0021-9991(85)90148-2).
 Backend solver is SciPy.
@@ -29,10 +27,7 @@ N_ex = 5    # num of elements in x direction
 N_ey = 5    # num of elements in y direction
 dt = 2e-4   # step size in time
 tol = 1e-2  # tolerance for stationarity such that max(‖Δu‖∞,‖Δv‖∞) < tol
-v_W = 0     # tangential velocity at x=0
-v_E = 0     # tangential velocity at x=L_x
-u_S = 0     # tangential velocity at y=0
-u_N = 1     # tangential velocity at y=L_y
+u_lid = 1   # lid velocity
 
 # grid
 dx = L_x / N_ex
@@ -53,10 +48,10 @@ dirichlet_v = np.full(points.shape[1], np.nan)
 dirichlet_phi = np.full(points.shape[1], np.nan)
 dirichlet_u[np.isclose(points[0], 0)] = 0
 dirichlet_u[np.isclose(points[0], L_x)] = 0
-dirichlet_u[np.isclose(points[1], 0)] = u_S
-dirichlet_u[np.isclose(points[1], L_y)] = u_N
-dirichlet_v[np.isclose(points[0], 0)] = v_W
-dirichlet_v[np.isclose(points[0], L_x)] = v_E
+dirichlet_u[np.isclose(points[1], 0)] = 0
+dirichlet_u[np.isclose(points[1], L_y)] = u_lid
+dirichlet_v[np.isclose(points[0], 0)] = 0
+dirichlet_v[np.isclose(points[0], L_x)] = 0
 dirichlet_v[np.isclose(points[1], 0)] = 0
 dirichlet_v[np.isclose(points[1], L_y)] = 0
 # dirichlet_phi[0] = 0  # reference pseudo pressure at south-east corner; required if a direct solver would be used

@@ -12,10 +12,10 @@ class NavierStokes(om.ImplicitComponent):
     Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v] + Gr/Re [0, T]
     ∇∘[u, v] = 0
     with no normal flow and tangential DIRICHLET conditions
-    v(t,0,y)   = v_W y∈[0,L_y]
-    v(t,L_x,y) = v_E y∈[0,L_y]
-    u(t,x,0)   = u_S x∈[0,L_x]
-    u(t,x,L_y) = u_N x∈[0,L_x]
+    v(0,y)   = v_W y∈[0,L_y]
+    v(L_x,y) = v_E y∈[0,L_y]
+    u(x,0)   = u_S x∈[0,L_x]
+    u(x,L_y) = u_N x∈[0,L_x]
     The steady-state is found by treating the time dependent equations as fixed-point problem.
     Temporal discretization is performed using the pressure-correction method from KIM-MOIN
     (doi.org/10.1016/0021-9991(85)90148-2).
