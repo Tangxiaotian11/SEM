@@ -65,9 +65,30 @@ def standard_gradient_matrix(P: int):
     :param P: polynomial order
     :return: Gˢᵢⱼ[i,j]
     """
+    weights = standard_nodes(P)[1]
     D_s = standard_differentiation_matrix(P)
-    M_s = standard_mass_matrix(P)
-    return M_s @ D_s
+    return np.einsum('i,ij->ij', weights, D_s)
+
+
+def standard_stiffness_matrix(P: int):
+    """
+    Returns standard stiffness matrix Kˢᵢⱼ=∫ℓ'ᵢℓ'ⱼdξ.\n
+    :param P: polynomial order
+    :return: Kˢᵢⱼ[i,j]
+    """
+    weights = standard_nodes(P)[1]
+    D_s = standard_differentiation_matrix(P)
+    return np.einsum('k,ki,kj->ij', weights, D_s, D_s)
+
+
+def standard_product_matrix(P: int):
+    """
+    Returns standard product matrix Fˢᵢⱼₖ=∫ℓᵢℓⱼℓₖdξ.\n
+    :param P: polynomial order
+    :return: Fˢᵢⱼₖ[i,j,k]
+    """
+    weights = standard_nodes(P)[1]
+    return np.einsum('i,ij,ik->ijk', weights, np.identity(P+1), np.identity(P+1))
 
 
 def standard_convection_matrix(P: int):
@@ -76,7 +97,14 @@ def standard_convection_matrix(P: int):
     :param P: polynomial order
     :return: Cˢᵢⱼₖ[i,j,k]
     """
+    weights = standard_nodes(P)[1]
     D_s = standard_differentiation_matrix(P)
-    M_s = standard_mass_matrix(P)
-    return np.einsum('ij,ik->ijk', M_s, D_s)
+    return np.einsum('i,ij,ik->ijk', weights, np.identity(P+1), D_s)
 
+
+def standard_evaluation_matrix(P: int, xi: np.ndarray):
+    nodes = standard_nodes(P)[0]
+    S_s = np.zeros((xi.size, P+1))
+    for j in range(P+1):
+        S_s[:, j] = np.prod([(xi - nodes[k])/(nodes[j] - nodes[k]) for k in range(P+1) if k != j], axis=0)
+    return S_s

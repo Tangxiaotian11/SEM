@@ -8,17 +8,16 @@ import openmdao.api as om
 class NavierStokes(om.ImplicitComponent):
     """
     Implicit component to solve the steady-state NAVIER-STOKES equation for u(x,y) and v(x,y) given the
-    temperature T(x,y) on (x,y)∈[0,L_x]×[0,L_y]
-    Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v] + Gr/Re [0, T]
-    ∇∘[u, v] = 0
+    temperature T(x,y)
+    Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v] + Gr/Re [0, T] ∀(x,y)∈[0,L_x]×[0,L_y]
+    ∇∘[u, v] = 0 ∀(x,y)∈[0,L_x]×[0,L_y]
     with no normal flow and tangential DIRICHLET conditions
     v(0,y)   = v_W y∈[0,L_y]
     v(L_x,y) = v_E y∈[0,L_y]
     u(x,0)   = u_S x∈[0,L_x]
     u(x,L_y) = u_N x∈[0,L_x]
-    The steady-state is found by treating the time dependent equations as fixed-point problem.
-    Temporal discretization is performed using the pressure-correction method from KIM-MOIN
-    (doi.org/10.1016/0021-9991(85)90148-2).
+    Artificial NEUMANN boundary condition for the pressure
+    ∂ₙp = 0 ∀(x,y)∈∂([0,L_x]×[0,L_y])
     """
 
     def initialize(self):
@@ -31,7 +30,6 @@ class NavierStokes(om.ImplicitComponent):
         self.options.declare('N_ex', types=int, desc='num of elements in x direction')
         self.options.declare('N_ey', types=int, desc='num of elements in y direction')
         self.options.declare('points', types=np.ndarray, desc='points as global vectors [x, y]')
-        self.options.declare('dt', types=float, desc='step size in time')
         self.options.declare('u_N', types=float, default=0., desc='tangential velocity at y=L_y')
         self.options.declare('u_S', types=float, default=0., desc='tangential velocity at y=0')
         self.options.declare('v_E', types=float, default=0., desc='tangential velocity at x=0')
@@ -42,7 +40,6 @@ class NavierStokes(om.ImplicitComponent):
         self.Re = self.options['Re']
         self.Gr = self.options['Gr']
         self.points = self.options['points']
-        self.dt = self.options['dt']
         self.L_x = self.options['L_x']
         self.L_y = self.options['L_y']
         self.P = self.options['P']
@@ -55,8 +52,6 @@ class NavierStokes(om.ImplicitComponent):
         self.Gr_over_Re = self.Gr/self.Re if self.Re != 0 else 0.
 
         # declare variables
-        self.add_output('u_pre', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='u* as global vector')
-        self.add_output('v_pre', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='v* as global vector')
         self.add_output('u', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='u as global vector')
         self.add_output('v', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='v as global vector')
         self.add_output('pressure', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='pseudo pressure as global vector')
@@ -69,7 +64,7 @@ class NavierStokes(om.ImplicitComponent):
         self.K = SEM.global_stiffness_matrix(self.P, self.N_ex, self.N_ey, dx, dy)
         self.G_x, self.G_y = SEM.global_gradient_matrices(self.P, self.N_ex, self.N_ey, dx, dy)
         self.C_x, self.C_y = SEM.global_convection_matrices(self.P, self.N_ex, self.N_ey, dx, dy)
-        
+
     def setup_partials(self):
         # indices in the global matrices with possible non-zero entries
         Full = SEM.assemble(np.ones((self.N_ex, self.N_ey, self.P+1, self.P+1, self.P+1, self.P+1))).tocoo()
@@ -78,106 +73,87 @@ class NavierStokes(om.ImplicitComponent):
 
     def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
         # load variables
-        u_pre = outputs['u_pre']
-        v_pre = outputs['v_pre']
         u = outputs['u']
         v = outputs['v']
         pressure = outputs['pressure']
         T = inputs['T']
 
         # left-hand-side multiplication of convection velocities, i.e. Re*(u @ C_x + v @ C_y)
-        Conv_pre = self.Re * (sparse.tensordot(self.C_x, u_pre, (1, 0), return_type=sparse.COO).tocsr()
-                            + sparse.tensordot(self.C_y, v_pre, (1, 0), return_type=sparse.COO).tocsr())
-        Conv_stat = self.Re * (sparse.tensordot(self.C_x, u, (1, 0), return_type=sparse.COO).tocsr()
-                             + sparse.tensordot(self.C_y, v, (1, 0), return_type=sparse.COO).tocsr())
+        Conv = self.Re * (sparse.tensordot(self.C_x, u, (1, 0), return_type=sparse.COO).tocsr()
+                        + sparse.tensordot(self.C_y, v, (1, 0), return_type=sparse.COO).tocsr())
 
-        # system matrices for the predictor
-        self.LHS = 1/self.dt * self.M + 0.5*self.K + 0.5*Conv_pre
-        self.RHS = -1/self.dt * self.M + 0.5*self.K + 0.5*Conv_stat
+        # system matrix
+        self.S = self.K + Conv
 
         # residuals
-        residuals['u_pre'] = self.LHS @ u_pre + self.RHS @ u
-        residuals['v_pre'] = self.LHS @ v_pre + self.RHS @ v - self.Gr_over_Re * self.M @ T
-        residuals['pressure'] = self.K @ pressure + 1/self.dt * (self.G_x @ u_pre + self.G_y @ v_pre)
-        residuals['u'] = 1/self.dt * self.M @ (u - u_pre) + self.G_x @ pressure  # =(u - u_corr)/dt
-        residuals['v'] = 1/self.dt * self.M @ (v - v_pre) + self.G_y @ pressure
+        residuals['u'] = self.S @ u + self.G_x @ pressure
+        residuals['v'] = self.S @ v + self.G_y @ pressure - self.Gr_over_Re * self.M @ T
+        residuals['pressure'] = self.G_x @ u + self.G_y @ v
+        res_neumann = self.K @ pressure
 
-        # apply DIRICHLET conditions
-        ind = np.isclose(self.points[0], 0)  # eastern points
-        residuals['u_pre'][ind] = u_pre[ind] - 0
-        residuals['v_pre'][ind] = v_pre[ind] - self.options['v_E']
-        ind = np.isclose(self.points[0], self.L_x)  # western points
-        residuals['u_pre'][ind] = u_pre[ind] - 0
-        residuals['v_pre'][ind] = v_pre[ind] - self.options['v_W']
-        ind = np.isclose(self.points[1], 0)  # south points
-        residuals['u_pre'][ind] = u_pre[ind] - self.options['u_S']
-        residuals['v_pre'][ind] = v_pre[ind] - 0
-        ind = np.isclose(self.points[1], self.L_y)  # north points
-        residuals['u_pre'][ind] = u_pre[ind] - self.options['u_N']
-        residuals['v_pre'][ind] = v_pre[ind] - 0
+        # apply DIRICHLET and artificial NEUMANN pressure conditions
+        mask = np.isclose(self.points[0], 0)  # eastern points
+        residuals['u'][mask] = u[mask] - 0
+        residuals['v'][mask] = v[mask] - self.options['v_E']
+        residuals['pressure'][mask] = res_neumann[mask]
+        mask = np.isclose(self.points[0], self.L_x)  # western points
+        residuals['u'][mask] = u[mask] - 0
+        residuals['v'][mask] = v[mask] - self.options['v_W']
+        residuals['pressure'][mask] = res_neumann[mask]
+        mask = np.isclose(self.points[1], 0)  # south points
+        residuals['u'][mask] = u[mask] - self.options['u_S']
+        residuals['v'][mask] = v[mask] - 0
+        residuals['pressure'][mask] = res_neumann[mask]
+        mask = np.isclose(self.points[1], self.L_y)  # north points
+        residuals['u'][mask] = u[mask] - self.options['u_N']
+        residuals['v'][mask] = v[mask] - 0
+        residuals['pressure'][mask] = res_neumann[mask]
 
-        # print('lg(max|res[u_pre]|) = ', np.log10(max(np.max(np.abs(residuals['u_pre'])),
-        #                                              np.max(np.abs(residuals['v_pre'])))), '; '
+        # print('lg(max|res[pressure]|) = ', np.log10(np.max(np.abs(residuals['pressure']))), '; '
         #       'lg(max|res[u]|) = ', np.log10(max(np.max(np.abs(residuals['u'])),
         #                                          np.max(np.abs(residuals['v'])))))
 
     def linearize(self, inputs, outputs, partials, **kwargs):
         # load variables
-        u_pre = outputs['u_pre']
-        v_pre = outputs['v_pre']
         u = outputs['u']
         v = outputs['v']
-        T = inputs['T']
 
         # JACOBI matrices of the predictor equations including chain rule,
         # i.e. right-hand-side multiplication of the velocities, e.g. Re * C_x @ u
-        jac_u_pre_u_pre = self.LHS\
-                        + 0.5*self.Re * sparse.tensordot(self.C_x, u_pre, (2, 0), return_type=sparse.COO).tocsr()
-        jac_v_pre_v_pre = self.LHS\
-                        + 0.5*self.Re * sparse.tensordot(self.C_y, v_pre, (2, 0), return_type=sparse.COO).tocsr()
-        jac_u_pre_v_pre = 0.5*self.Re * sparse.tensordot(self.C_y, u_pre, (2, 0), return_type=sparse.COO).tocsr()
-        jac_v_pre_u_pre = 0.5*self.Re * sparse.tensordot(self.C_x, v_pre, (2, 0), return_type=sparse.COO).tocsr()
-        jac_u_pre_u = self.RHS\
-                    + 0.5*self.Re * sparse.tensordot(self.C_x, u, (2, 0), return_type=sparse.COO).tocsr()
-        jac_v_pre_v = self.RHS\
-                    + 0.5*self.Re * sparse.tensordot(self.C_y, v, (2, 0), return_type=sparse.COO).tocsr()
-        jac_u_pre_v = 0.5*self.Re * sparse.tensordot(self.C_y, u, (2, 0), return_type=sparse.COO).tocsr()
-        jac_v_pre_u = 0.5*self.Re * sparse.tensordot(self.C_x, v, (2, 0), return_type=sparse.COO).tocsr()
+        jac_u_u = self.S\
+                  + self.Re * sparse.tensordot(self.C_x, u, (2, 0), return_type=sparse.COO).tocsr()
+        jac_v_v = self.S\
+                  + self.Re * sparse.tensordot(self.C_y, v, (2, 0), return_type=sparse.COO).tocsr()
+        jac_u_v = self.Re * sparse.tensordot(self.C_y, u, (2, 0), return_type=sparse.COO).tocsr()
+        jac_v_u = self.Re * sparse.tensordot(self.C_x, v, (2, 0), return_type=sparse.COO).tocsr()
 
         # hand over values on the relevant indices; '.getA1()' to convert from np.matrix to np.array
-        partials['u_pre', 'u_pre'] = jac_u_pre_u_pre[self.rows, self.cols].getA1()
-        partials['u_pre', 'v_pre'] = jac_u_pre_v_pre[self.rows, self.cols].getA1()
-        partials['u_pre', 'u'] = jac_u_pre_u[self.rows, self.cols].getA1()
-        partials['u_pre', 'v'] = jac_u_pre_v[self.rows, self.cols].getA1()
-        partials['v_pre', 'u_pre'] = jac_v_pre_u_pre[self.rows, self.cols].getA1()
-        partials['v_pre', 'v_pre'] = jac_v_pre_v_pre[self.rows, self.cols].getA1()
-        partials['v_pre', 'u'] = jac_v_pre_u[self.rows, self.cols].getA1()
-        partials['v_pre', 'v'] = jac_v_pre_v[self.rows, self.cols].getA1()
-        partials['pressure', 'pressure'] = self.K[self.rows, self.cols].getA1()
-        partials['pressure', 'u_pre'] = 1/self.dt * self.G_x[self.rows, self.cols].getA1()
-        partials['pressure', 'v_pre'] = 1/self.dt * self.G_y[self.rows, self.cols].getA1()
-        partials['u', 'u'] = 1/self.dt * self.M[self.rows, self.cols].getA1()
-        partials['v', 'v'] = 1/self.dt * self.M[self.rows, self.cols].getA1()
-        partials['u', 'u_pre'] = -1/self.dt * self.M[self.rows, self.cols].getA1()
-        partials['v', 'v_pre'] = -1/self.dt * self.M[self.rows, self.cols].getA1()
+        partials['u', 'u'] = jac_u_u[self.rows, self.cols].getA1()
+        partials['u', 'v'] = jac_u_v[self.rows, self.cols].getA1()
+        partials['v', 'u'] = jac_v_u[self.rows, self.cols].getA1()
+        partials['v', 'v'] = jac_v_v[self.rows, self.cols].getA1()
         partials['u', 'pressure'] = self.G_x[self.rows, self.cols].getA1()
         partials['v', 'pressure'] = self.G_y[self.rows, self.cols].getA1()
-        partials['v_pre', 'T'] = - self.Gr_over_Re * self.M[self.rows, self.cols].getA1()
+        partials['v', 'T'] = - self.Gr_over_Re * self.M[self.rows, self.cols].getA1()
+        partials['pressure', 'u'] = self.G_x[self.rows, self.cols].getA1()
+        partials['pressure', 'v'] = self.G_y[self.rows, self.cols].getA1()
+        partials['pressure', 'pressure'] = self.K[self.rows, self.cols].getA1()
 
-        # apply DIRICHLET conditions
+        # apply DIRICHLET and artificial NEUMANN pressure conditions
         # subset of the relevant indices whose rows correspond to boundary points
-        ind_rows = np.isclose(self.points[0][self.rows], 0) \
-                 + np.isclose(self.points[0][self.rows], self.L_x) \
-                 + np.isclose(self.points[1][self.rows], 0) \
-                 + np.isclose(self.points[1][self.rows], self.L_y)
-        partials['u_pre', 'u_pre'][ind_rows] = 0  # clear rows
-        partials['u_pre', 'v_pre'][ind_rows] = 0
-        partials['u_pre', 'u'][ind_rows] = 0
-        partials['u_pre', 'v'][ind_rows] = 0
-        partials['v_pre', 'u_pre'][ind_rows] = 0
-        partials['v_pre', 'v_pre'][ind_rows] = 0
-        partials['v_pre', 'u'][ind_rows] = 0
-        partials['v_pre', 'v'][ind_rows] = 0
-        partials['v_pre', 'T'][ind_rows] = 0
-        partials['u_pre', 'u_pre'][(self.cols == self.rows) * ind_rows] = 1  # set 1 on main diagonal
-        partials['v_pre', 'v_pre'][(self.cols == self.rows) * ind_rows] = 1
+        mask_rows = np.isclose(self.points[0][self.rows], 0) \
+                  + np.isclose(self.points[0][self.rows], self.L_x) \
+                  + np.isclose(self.points[1][self.rows], 0) \
+                  + np.isclose(self.points[1][self.rows], self.L_y)
+        partials['u', 'u'][mask_rows] = 0  # clear rows
+        partials['u', 'v'][mask_rows] = 0
+        partials['u', 'pressure'][mask_rows] = 0
+        partials['v', 'u'][mask_rows] = 0
+        partials['v', 'v'][mask_rows] = 0
+        partials['v', 'pressure'][mask_rows] = 0
+        partials['v', 'T'][mask_rows] = 0
+        partials['pressure', 'u'][mask_rows] = 0
+        partials['pressure', 'v'][mask_rows] = 0
+        partials['pressure', 'pressure'][~mask_rows] = 0
+        partials['u', 'u'][(self.cols == self.rows) * mask_rows] = 1  # set 1 on main diagonal
+        partials['v', 'v'][(self.cols == self.rows) * mask_rows] = 1

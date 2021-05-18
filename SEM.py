@@ -4,7 +4,6 @@ Continuous GALERKIN spectral element method
 import typing
 import numpy as np
 import GLL
-import scipy.interpolate as sp_interp
 import scipy.sparse as sp_sparse
 import sparse  # this package is exclusively used for three dimensional sparse matrices, i.e. the convection matrices
 
@@ -16,7 +15,25 @@ def xi2x(e: int, xi: float, dx: float) -> float:
     :param xi: standard coordinate
     :param dx: element width
     """
+    if np.any(xi > 1) or np.any(xi < -1):
+        raise ValueError('xi out of range')
     return dx/2 * (xi+1) + dx*e
+
+
+def x2xi(x: float, dx: float) -> typing.Tuple[int, float]:
+    """
+    Returns standard coordinate xi and element number e from physical coordinate x. This function is vectorized.\n
+    :param x: physical coordinate
+    :param dx: element width
+    :return: [e, xi]
+    """
+    xi, e = np.modf(x/dx)
+    xi = 2*xi-1
+    # shifting (e, -1) -> (e-1, 1) for e>0
+    mask = np.isclose(xi, -1)*(e > 0)
+    e[mask] -= 1
+    xi[mask] = 1
+    return e.astype(int), xi
 
 
 def element_nodes_1d(P: int, N_ex: int, dx: float):
@@ -150,31 +167,6 @@ def scatter(u: np.ndarray, P: int, N_ex: int, N_ey: int):
     return u_e
 
 
-def element_mass_matrix_1d(P: int, N_ex: int, dx: float):
-    """
-    Returns element mass matrix for one dimension.\n
-    :param P: polynomial order
-    :param N_ex: num of elements
-    :param dx: element width
-    :return: Mᵐᵢₖ[m,i,k]
-    """
-    M_s = GLL.standard_mass_matrix(P)
-    return np.einsum('m,ik->mik', dx/2*np.ones(N_ex), M_s)
-
-
-def element_stiffness_matrix_1d(P: int, N_ex: int, dx: float):
-    """
-    Returns element stiffness matrix for one dimension.\n
-    :param P: polynomial order
-    :param N_ex: num of elements
-    :param dx: element width
-    :return: Kᵐᵢₖ[m,i,k]
-    """
-    M_s = GLL.standard_mass_matrix(P)
-    D_s = GLL.standard_differentiation_matrix(P)
-    return np.einsum('m,ik->mik', 2/dx*np.ones(N_ex), D_s.transpose() @ M_s @ D_s)
-
-
 def global_mass_matrix(P: int, N_ex: int, N_ey: int, dx: float, dy: float) -> sp_sparse.csr_matrix:
     """
     Returns global mass matrix in SciPy-CSR format.\n
@@ -184,8 +176,9 @@ def global_mass_matrix(P: int, N_ex: int, N_ey: int, dx: float, dy: float) -> sp
     :param dx: element width in x direction
     :param dy: ... in y direction
     """
-    M_ex = element_mass_matrix_1d(P, N_ex, dx)
-    M_ey = element_mass_matrix_1d(P, N_ey, dy)
+    M_s = GLL.standard_mass_matrix(P)
+    M_ex = np.multiply.outer(np.full(N_ex, dx/2), M_s)
+    M_ey = np.multiply.outer(np.full(N_ey, dy/2), M_s)
     M_e = np.einsum('mik,njl->mnijkl', M_ex, M_ey, optimize=True)
     return assemble(M_e)
 
@@ -199,10 +192,12 @@ def global_stiffness_matrix(P: int, N_ex: int, N_ey: int, dx: float, dy: float) 
     :param dx: element width in x direction
     :param dy: ... in y direction
     """
-    M_ex = element_mass_matrix_1d(P, N_ex, dx)
-    M_ey = element_mass_matrix_1d(P, N_ey, dy)
-    K_ex = element_stiffness_matrix_1d(P, N_ex, dx)
-    K_ey = element_stiffness_matrix_1d(P, N_ey, dy)
+    M_s = GLL.standard_mass_matrix(P)
+    K_s = GLL.standard_stiffness_matrix(P)
+    M_ex = np.multiply.outer(np.full(N_ex, dx/2), M_s)
+    M_ey = np.multiply.outer(np.full(N_ey, dy/2), M_s)
+    K_ex = np.multiply.outer(np.full(N_ex, 2/dx), K_s)
+    K_ey = np.multiply.outer(np.full(N_ey, 2/dy), K_s)
     K_e = np.einsum('mik,njl->mnijkl', K_ex, M_ey, optimize=True)\
         + np.einsum('mik,njl->mnijkl', M_ex, K_ey, optimize=True)
     return assemble(K_e)
@@ -219,9 +214,10 @@ def global_gradient_matrices(P: int, N_ex: int, N_ey: int, dx: float, dy: float)
     :param dy: ... in y direction
     :return: G_x, G_y
     """
-    M_ex = element_mass_matrix_1d(P, N_ex, dx)
-    M_ey = element_mass_matrix_1d(P, N_ey, dy)
+    M_s = GLL.standard_mass_matrix(P)
     G_s = GLL.standard_gradient_matrix(P)
+    M_ex = np.multiply.outer(np.full(N_ex, dx/2), M_s)
+    M_ey = np.multiply.outer(np.full(N_ey, dy/2), M_s)
     G_x_e = np.einsum('m,ik,njl->mnijkl', np.ones(N_ex), G_s, M_ey, optimize=True)
     G_y_e = np.einsum('mik,n,jl->mnijkl', M_ex, np.ones(N_ey), G_s, optimize=True)
     return assemble(G_x_e), assemble(G_y_e)
@@ -240,11 +236,12 @@ def global_convection_matrices(P: int, N_ex: int, N_ey: int, dx: float, dy: floa
     :param dy: ... in y direction
     :return: C_x, C_y
     """
-    M_ex = element_mass_matrix_1d(P, N_ex, dx)
-    M_ey = element_mass_matrix_1d(P, N_ey, dy)
+    F_s = GLL.standard_product_matrix(P)
     C_s = GLL.standard_convection_matrix(P)
-    C_x_e = np.einsum('m,irk,sl,njl->mnijrskl', np.ones(N_ex), C_s, np.identity(P+1), M_ey, optimize=True)
-    C_y_e = np.einsum('rk,nik,m,jsl->mnijrskl', np.identity(P+1), M_ex, np.ones(N_ey), C_s, optimize=True)
+    F_ex = np.multiply.outer(np.full(N_ex, dx/2), F_s)
+    F_ey = np.multiply.outer(np.full(N_ey, dy/2), F_s)
+    C_x_e = np.einsum('m,irk,njsl->mnijrskl', np.ones(N_ex), C_s, F_ex, optimize=True)
+    C_y_e = np.einsum('mirk,n,jsl->mnijrskl', F_ey, np.ones(N_ey), C_s, optimize=True)
     return assemble(C_x_e), assemble(C_y_e)
 
 
@@ -261,18 +258,16 @@ def eval_interpolation(u_e: np.ndarray, points_e: np.ndarray, points_plot: typin
     P = u_e.shape[2]-1
     x_e = points_e[0, :, 0, :, 0]
     y_e = points_e[1, 0, :, 0, :]
-    eye = np.identity(P+1)
+    dx = x_e[0, -1] - x_e[0, 0]
+    dy = y_e[0, -1] - y_e[0, 0]
+    m_plot, xi_plot = x2xi(points_plot[0][:, 0], dx)
+    n_plot, eta_plot = x2xi(points_plot[1][0, :], dy)
     val = np.zeros((points_plot[0].shape[0], points_plot[0].shape[1]))
     for m in range(N_ex):
         for n in range(N_ey):
-            ind = (points_plot[0] >= np.min(x_e[m]))\
-                * (points_plot[0] <= np.max(x_e[m]))\
-                * (points_plot[1] >= np.min(y_e[n]))\
-                * (points_plot[1] <= np.max(y_e[n]))
-            val[ind] = 0  # overwrite existing element contributions
-            for k in range(P+1):
-                for l in range(P+1):
-                    basis_x = sp_interp.lagrange(x_e[m], eye[k])
-                    basis_y = sp_interp.lagrange(y_e[n], eye[l])
-                    val[ind] += basis_x(points_plot[0][ind]) * basis_y(points_plot[1][ind]) * u_e[m, n, k, l]
+            np.place(val, np.outer(m_plot == m, n_plot == n),
+                     np.einsum('kl,ik,jl->ij',
+                               u_e[m, n],
+                               GLL.standard_evaluation_matrix(P, xi_plot[m_plot == m]),
+                               GLL.standard_evaluation_matrix(P, eta_plot[n_plot == n])))
     return val

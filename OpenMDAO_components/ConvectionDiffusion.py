@@ -8,15 +8,14 @@ import openmdao.api as om
 class ConvectionDiffusion(om.ImplicitComponent):
     """
     Implicit component to solve the steady-state convection-diffusion equation for T(x,y) given the convection
-    velocities u(x,y) and v(x,y) on (x,y)∈[0,L_x]×[0,L_y]
-    Pe [u, v]∘∇T = ∇²T
+    velocities u(x,y) and v(x,y)
+    Pe [u, v]∘∇T = ∇²T ∀(x,y)∈[0,L_x]×[0,L_y]
     with either DIRICHLET or NEUMANN conditions
     T(0,y)   = T_W or ∂ₙT(0,y)   = dT_W ∀y∈[0,L_y]
     T(L_x,y) = T_E or ∂ₙT(L_x,y) = dT_E ∀y∈[0,L_y]
     T(x,0)   = T_S or ∂ₙT(x,0)   = dT_S ∀x∈[0,L_x]
     T(x,L_y) = T_N or ∂ₙT(x,L_y) = dT_N ∀x∈[0,L_x]
     """
-    # T_W = -0.5, T_E = 0.5, dT_S = dT_N = 0 only for now
 
     def initialize(self):
         # declare parameters
@@ -84,17 +83,17 @@ class ConvectionDiffusion(om.ImplicitComponent):
         # apply DIRICHLET/NEUMANN conditions
         # TODO NEUMANN conditions
         if self.options['T_W'] is not None:
-            ind = np.isclose(self.points[0], 0)  # western points
-            residuals['T'][ind] = T[ind] - self.options['T_W']
+            mask = np.isclose(self.points[0], 0)  # western points
+            residuals['T'][mask] = T[mask] - self.options['T_W']
         if self.options['T_E'] is not None:
-            ind = np.isclose(self.points[0], self.L_x)  # eastern points
-            residuals['T'][ind] = T[ind] - self.options['T_E']
+            mask = np.isclose(self.points[0], self.L_x)  # eastern points
+            residuals['T'][mask] = T[mask] - self.options['T_E']
         if self.options['T_S'] is not None:
-            ind = np.isclose(self.points[1], 0)  # southern points
-            residuals['T'][ind] = T[ind] - self.options['T_S']
+            mask = np.isclose(self.points[1], 0)  # southern points
+            residuals['T'][mask] = T[mask] - self.options['T_S']
         if self.options['T_N'] is not None:
-            ind = np.isclose(self.points[1], self.L_y)  # northern points
-            residuals['T'][ind] = T[ind] - self.options['T_N']
+            mask = np.isclose(self.points[1], self.L_y)  # northern points
+            residuals['T'][mask] = T[mask] - self.options['T_N']
 
         # print('lg(max|res[T]|) = ', np.log10(np.max(np.abs(residuals['T']))))
 
@@ -113,11 +112,11 @@ class ConvectionDiffusion(om.ImplicitComponent):
 
         # apply DIRICHLET conditions
         # subset of the relevant indices whose rows correspond to DIRICHLET boundary points
-        ind_rows = np.isclose(self.points[0][self.rows], 0) * (self.options['T_E'] is not None) \
+        mask_rows = np.isclose(self.points[0][self.rows], 0) * (self.options['T_E'] is not None) \
                  + np.isclose(self.points[0][self.rows], self.L_x) * (self.options['T_W'] is not None) \
                  + np.isclose(self.points[1][self.rows], 0) * (self.options['T_S'] is not None) \
                  + np.isclose(self.points[1][self.rows], self.L_y) * (self.options['T_N'] is not None)
-        partials['T', 'T'][ind_rows] = 0  # clear rows
-        partials['T', 'u'][ind_rows] = 0
-        partials['T', 'v'][ind_rows] = 0
-        partials['T', 'T'][(self.cols == self.rows) * ind_rows] = 1  # set 1 on main diagonal
+        partials['T', 'T'][mask_rows] = 0  # clear rows
+        partials['T', 'u'][mask_rows] = 0
+        partials['T', 'v'][mask_rows] = 0
+        partials['T', 'T'][(self.cols == self.rows) * mask_rows] = 1  # set 1 on main diagonal

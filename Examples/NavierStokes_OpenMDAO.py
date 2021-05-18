@@ -21,7 +21,6 @@ Re = 4.0e2  # REYNOLDS number
 P = 6       # polynomial order
 N_ex = 5    # num of elements in x direction
 N_ey = 5    # num of elements in y direction
-dt = 1.e-4  # step size in time
 tol = 1e-2  # tolerance on residuals
 
 # grid
@@ -37,10 +36,10 @@ u[np.isclose(points[1], L_y)] = 1.  # initial guess
 prob = om.Problem()
 model = prob.model
 model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, u_N=1.,
-                                                 P=P, N_ex=N_ex, N_ey=N_ey, points=points, dt=dt))
+                                                 P=P, N_ex=N_ex, N_ey=N_ey, points=points))
 model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=800, atol=tol, rtol=1e-18)
 model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=5, rho=0.8, c=0.2)
-model.linear_solver = om.ScipyKrylov(iprint=1, atol=1e-4, rtol=1e-18, maxiter=4000, restart=1000)
+model.linear_solver = om.ScipyKrylov(iprint=2, atol=1e-4, rtol=1e-18, maxiter=4000, restart=4000)
 prob.setup()
 
 
@@ -60,7 +59,7 @@ v_plot = SEM.eval_interpolation(v_e, points_e, (x_plot, y_plot))
 fig = plt.figure(figsize=(L_x*4, L_y*4))
 ax = fig.gca()
 ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=3)
-ax.set_title(f"Re={Re:.0e}, P={P}, N_ex={N_ex}, N_ey={N_ey}, dt={dt:.0e}, tol={tol:.0e}", fontsize='small')
+ax.set_title(f"Re={Re:.0e}, P={P}, N_ex={N_ex}, N_ey={N_ey}, tol={tol:.0e}", fontsize='small')
 ax.set_xlabel('x')
 ax.set_ylabel('y')
 plt.show()
