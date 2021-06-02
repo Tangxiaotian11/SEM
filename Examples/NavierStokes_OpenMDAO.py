@@ -1,6 +1,7 @@
 import numpy as np
 import SEM
 from OpenMDAO_components.NavierStokes import NavierStokes
+from OpenMDAO_components.ILUPrecon import ILUPrecon
 import openmdao.api as om
 import matplotlib.pyplot as plt
 
@@ -17,11 +18,11 @@ Possible reference solutions from GHIA (doi.org/10.1016/0021-9991(82)90058-4).
 # input
 L_x = 1.    # length in x direction
 L_y = 1.    # length in y direction
-Re = 4.0e2  # REYNOLDS number
-P = 6       # polynomial order
-N_ex = 5    # num of elements in x direction
-N_ey = 5    # num of elements in y direction
-tol = 1e-2  # tolerance on residuals
+Re = 1.0e3  # REYNOLDS number
+P = 5       # polynomial order
+N_ex = 10   # num of elements in x direction
+N_ey = 10   # num of elements in y direction
+tol = 1e-4  # tolerance on residuals
 
 # grid
 points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
@@ -37,9 +38,10 @@ prob = om.Problem()
 model = prob.model
 model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, u_N=1.,
                                                  P=P, N_ex=N_ex, N_ey=N_ey, points=points))
-model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=800, atol=tol, rtol=1e-18)
-model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=5, rho=0.8, c=0.2)
-model.linear_solver = om.ScipyKrylov(iprint=2, atol=1e-4, rtol=1e-18, maxiter=4000, restart=4000)
+model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=100, atol=tol, rtol=1e-18)
+model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=10, rho=0.8, c=0.5)
+model.linear_solver = om.ScipyKrylov(iprint=2, atol=1e-8, maxiter=100, restart=100)
+model.linear_solver.precon = ILUPrecon(iprint=2, drop_tol=1.e-5)
 prob.setup()
 
 
@@ -63,3 +65,14 @@ ax.set_title(f"Re={Re:.0e}, P={P}, N_ex={N_ex}, N_ey={N_ey}, tol={tol:.0e}", fon
 ax.set_xlabel('x')
 ax.set_ylabel('y')
 plt.show()
+
+# info
+u_min = np.min(u_plot[np.isclose(x_plot, 0.5)])
+y_min = y_plot[np.isclose(u_plot, u_min)][0]
+v_max = np.max(v_plot[np.isclose(y_plot, 0.5)])
+x_max = x_plot[np.isclose(v_plot, v_max)][0]
+v_min = np.min(v_plot[np.isclose(y_plot, 0.5)])
+x_min = x_plot[np.isclose(v_plot, v_min)][0]
+print(f"u_min(x=0.5) = {u_min:.2f} @ y = {y_min:.2f}")
+print(f"v_max(y=0.5) = {v_max:.2f} @ x = {x_max:.2f}")
+print(f"v_min(y=0.5) = {v_min:.2f} @ x = {x_min:.2f}")

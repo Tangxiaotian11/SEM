@@ -91,7 +91,7 @@ class NavierStokes(om.ImplicitComponent):
         residuals['pressure'] = self.G_x @ u + self.G_y @ v
         res_neumann = self.K @ pressure
 
-        # apply DIRICHLET and artificial NEUMANN pressure conditions
+        # apply DIRICHLET velocity and artificial NEUMANN pressure conditions
         mask = np.isclose(self.points[0], 0)  # eastern points
         residuals['u'][mask] = u[mask] - 0
         residuals['v'][mask] = v[mask] - self.options['v_E']
@@ -109,9 +109,10 @@ class NavierStokes(om.ImplicitComponent):
         residuals['v'][mask] = v[mask] - 0
         residuals['pressure'][mask] = res_neumann[mask]
 
-        # print('lg(max|res[pressure]|) = ', np.log10(np.max(np.abs(residuals['pressure']))), '; '
-        #       'lg(max|res[u]|) = ', np.log10(max(np.max(np.abs(residuals['u'])),
-        #                                          np.max(np.abs(residuals['v'])))))
+        # apply reference DIRICHLET pressure condition
+        mask = np.isclose(self.points[0], self.L_x/2) \
+             * np.isclose(self.points[1], self.L_y/2)
+        residuals['pressure'][mask] = pressure[mask] - 0
 
     def linearize(self, inputs, outputs, partials, **kwargs):
         # load variables
@@ -120,18 +121,18 @@ class NavierStokes(om.ImplicitComponent):
 
         # JACOBI matrices of the predictor equations including chain rule,
         # i.e. right-hand-side multiplication of the velocities, e.g. Re * C_x @ u
-        jac_u_u = self.S\
+        Jac_u_u = self.S\
                   + self.Re * sparse.tensordot(self.C_x, u, (2, 0), return_type=sparse.COO).tocsr()
-        jac_v_v = self.S\
+        Jac_v_v = self.S\
                   + self.Re * sparse.tensordot(self.C_y, v, (2, 0), return_type=sparse.COO).tocsr()
-        jac_u_v = self.Re * sparse.tensordot(self.C_y, u, (2, 0), return_type=sparse.COO).tocsr()
-        jac_v_u = self.Re * sparse.tensordot(self.C_x, v, (2, 0), return_type=sparse.COO).tocsr()
+        Jac_u_v = self.Re * sparse.tensordot(self.C_y, u, (2, 0), return_type=sparse.COO).tocsr()
+        Jac_v_u = self.Re * sparse.tensordot(self.C_x, v, (2, 0), return_type=sparse.COO).tocsr()
 
         # hand over values on the relevant indices; '.getA1()' to convert from np.matrix to np.array
-        partials['u', 'u'] = jac_u_u[self.rows, self.cols].getA1()
-        partials['u', 'v'] = jac_u_v[self.rows, self.cols].getA1()
-        partials['v', 'u'] = jac_v_u[self.rows, self.cols].getA1()
-        partials['v', 'v'] = jac_v_v[self.rows, self.cols].getA1()
+        partials['u', 'u'] = Jac_u_u[self.rows, self.cols].getA1()
+        partials['u', 'v'] = Jac_u_v[self.rows, self.cols].getA1()
+        partials['v', 'u'] = Jac_v_u[self.rows, self.cols].getA1()
+        partials['v', 'v'] = Jac_v_v[self.rows, self.cols].getA1()
         partials['u', 'pressure'] = self.G_x[self.rows, self.cols].getA1()
         partials['v', 'pressure'] = self.G_y[self.rows, self.cols].getA1()
         partials['v', 'T'] = - self.Gr_over_Re * self.M[self.rows, self.cols].getA1()
@@ -157,3 +158,12 @@ class NavierStokes(om.ImplicitComponent):
         partials['pressure', 'pressure'][~mask_rows] = 0
         partials['u', 'u'][(self.cols == self.rows) * mask_rows] = 1  # set 1 on main diagonal
         partials['v', 'v'][(self.cols == self.rows) * mask_rows] = 1
+
+        # apply reference DIRICHLET pressure condition
+        # subset of the relevant indices whose rows correspond to the center point
+        mask_rows = np.isclose(self.points[0][self.rows], self.L_x/2) \
+                  * np.isclose(self.points[1][self.rows], self.L_y/2)
+        partials['pressure', 'u'][mask_rows] = 0
+        partials['pressure', 'v'][mask_rows] = 0
+        partials['pressure', 'pressure'][mask_rows] = 0
+        partials['pressure', 'pressure'][(self.cols == self.rows) * mask_rows] = 1

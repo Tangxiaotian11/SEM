@@ -2,6 +2,7 @@ import numpy as np
 import SEM
 from OpenMDAO_components.NavierStokes import NavierStokes
 from OpenMDAO_components.ConvectionDiffusion import ConvectionDiffusion
+from OpenMDAO_components.ILUPrecon import ILUPrecon
 import openmdao.api as om
 import matplotlib.pyplot as plt
 
@@ -23,12 +24,12 @@ Possible reference solutions from MARKATOS-PERICLEOUS (doi.org/10.1016/0017-9310
 L_x = 1.    # length in x direction
 L_y = 1.    # length in y direction
 Re = 1.     # REYNOLDS number
-Ra = 1.e4   # RAYLEIGH number
-Pr = 0.7    # PRANDTL number
-P = 6       # polynomial order
-N_ex = 5    # num of elements in x direction
-N_ey = 5    # num of elements in y direction
-tol = 1e-2  # tolerance on residuals
+Ra = 1.e5   # RAYLEIGH number
+Pr = 0.71   # PRANDTL number
+P = 5       # polynomial order
+N_ex = 10   # num of elements in x direction
+N_ey = 10   # num of elements in y direction
+tol = 1e-4  # tolerance on residuals
 
 # grid
 points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
@@ -46,14 +47,15 @@ prob = om.Problem()
 model = prob.model
 model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
                                                  P=P, N_ex=N_ex, N_ey=N_ey, points=points))
-model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion(L_x=L_x, L_y=L_y, Pe=Re*Pr, T_W=-0.5, T_E=0.5,
+model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion(L_x=L_x, L_y=L_y, Pe=Re*Pr, T_W=0.5, T_E=-0.5,
                                                                P=P, N_ex=N_ex, N_ey=N_ey, points=points))
 model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
-model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=800, atol=tol, rtol=1e-18)
-model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=5, rho=0.8, c=0.2)
-model.linear_solver = om.ScipyKrylov(iprint=2, atol=1e-4, rtol=1e-18, maxiter=4000, restart=4000)
+model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=100, atol=tol, rtol=1e-18)
+model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=10, rho=0.8, c=0.5)
+model.linear_solver = om.ScipyKrylov(iprint=2, atol=1e-8, maxiter=100, restart=100)
+model.linear_solver.precon = ILUPrecon(iprint=2, drop_tol=1.e-5)
 prob.setup()
 # om.n2(prob) # prints N2-diagram
 
@@ -86,3 +88,11 @@ ax.set_title(f"Re={Re:.0e}, Ra={Ra:.0e}, Pr={Pr}, P={P}, N_ex={N_ex}, N_ey={N_ey
 ax.set_xlabel('x')
 ax.set_ylabel('y')
 plt.show()
+
+# info
+u_max = np.max(u_plot[np.isclose(x_plot, 0.5)])
+y_max = y_plot[np.isclose(u_plot, u_max)][0]
+v_max = np.max(v_plot[np.isclose(y_plot, 0.5)])
+x_max = x_plot[np.isclose(v_plot, v_max)][0]
+print(f"u_max(x=0.5) = {u_max:.2f} @ y = {y_max:.2f}")
+print(f"v_max(y=0.5) = {v_max:.2f} @ x = {x_max:.2f}")

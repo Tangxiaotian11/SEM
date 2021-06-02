@@ -102,13 +102,13 @@ class ConvectionDiffusion(om.ImplicitComponent):
         T = outputs['T']
 
         # right-hand-side multiplication of T, i.e. Pe*(C_x @ T)
-        jac_T_u = self.Pe * sparse.tensordot(self.C_x, T, (2, 0), return_type=sparse.COO).tocsr()
-        jac_T_v = self.Pe * sparse.tensordot(self.C_y, T, (2, 0), return_type=sparse.COO).tocsr()
+        Jac_T_u = self.Pe * sparse.tensordot(self.C_x, T, (2, 0), return_type=sparse.COO).tocsr()
+        Jac_T_v = self.Pe * sparse.tensordot(self.C_y, T, (2, 0), return_type=sparse.COO).tocsr()
 
         # hand over values on the relevant indices; '.getA1()' to convert from np.matrix to np.array
         partials['T', 'T'] = self.Sys[self.rows, self.cols].getA1()
-        partials['T', 'u'] = jac_T_u[self.rows, self.cols].getA1()
-        partials['T', 'v'] = jac_T_v[self.rows, self.cols].getA1()
+        partials['T', 'u'] = Jac_T_u[self.rows, self.cols].getA1()
+        partials['T', 'v'] = Jac_T_v[self.rows, self.cols].getA1()
 
         # apply DIRICHLET conditions
         # subset of the relevant indices whose rows correspond to DIRICHLET boundary points

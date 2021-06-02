@@ -1,5 +1,5 @@
 import numpy as np
-import scipy.sparse.linalg as sp_sparse_linalg
+import scipy.sparse.linalg as linalg
 import SEM
 import matplotlib.pyplot as plt
 
@@ -34,7 +34,7 @@ H = lam * M + K
 g = M @ f(points[0], points[1])
 
 # solve
-u, info = sp_sparse_linalg.cg(H, g)
+u, info = linalg.cg(H, g)
 if info != 0:
     raise RuntimeError('CG failed to converge')
 

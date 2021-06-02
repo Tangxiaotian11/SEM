@@ -1,5 +1,5 @@
 import numpy as np
-import scipy.sparse.linalg as sp_sparse_linalg
+import scipy.sparse.linalg as linalg
 import scipy.sparse as sp_sparse
 import SEM
 import matplotlib.pyplot as plt
@@ -19,9 +19,9 @@ Possible reference solutions from GHIA (doi.org/10.1016/0021-9991(82)90058-4).
 # setup
 L_x = 1     # length in x direction
 L_y = 1     # length in y direction
-P = 6       # polynomial order
-N_ex = 5    # num of elements in x direction
-N_ey = 5    # num of elements in y direction
+P = 5       # polynomial order
+N_ex = 6    # num of elements in x direction
+N_ey = 6    # num of elements in y direction
 u_lid = 1   # lid velocity
 
 # grid
@@ -46,23 +46,24 @@ dirichlet_v[np.isclose(points[0], 0)] = 0
 dirichlet_v[np.isclose(points[0], L_x)] = 0
 dirichlet_v[np.isclose(points[1], 0)] = 0
 dirichlet_v[np.isclose(points[1], L_y)] = 0
+dirichlet_p[np.isclose(points[0], L_x/2) * np.isclose(points[1], L_y/2)] = 0
 
 # System matrix
 mask = ~np.isnan(dirichlet_u)
 mask_p = ~np.isnan(dirichlet_p)
 K_dir = K.copy()
-K_neu = K.copy()
+B = K.copy()
 G_x_dir = G_x.copy()
 G_y_dir = G_y.copy()
 K_dir[mask, :] = G_x_dir[mask, :] = G_x_dir[mask, :] = 0
 K_dir[mask, mask] = 1
-K_neu[~mask, :] = 0
-K_neu[mask_p, :] = 0
-K_neu[mask_p, mask_p] = 1
+B[~mask, :] = 0
+B[mask_p, :] = 0
+B[mask_p, mask_p] = 1
 
 S = sp_sparse.bmat([[K_dir, None, G_x_dir],
                     [None, K_dir, G_y_dir],
-                    [G_x_dir, G_y_dir, K_neu]], format='csr')
+                    [G_x_dir, G_y_dir, B]], format='csr')
 S.eliminate_zeros()
 
 # initial condition
@@ -71,9 +72,9 @@ v = np.zeros(points.shape[1])
 u[~np.isnan(dirichlet_u)] = dirichlet_u[~np.isnan(dirichlet_u)]
 v[~np.isnan(dirichlet_v)] = dirichlet_v[~np.isnan(dirichlet_v)]
 
-sol, info = sp_sparse_linalg.gmres(S, np.hstack((np.nan_to_num(dirichlet_u, nan=0.),
-                                                 np.nan_to_num(dirichlet_v, nan=0.),
-                                                 np.zeros(points.shape[1]))))
+sol, info = linalg.gmres(S, np.hstack((np.nan_to_num(dirichlet_u, nan=0.),
+                                       np.nan_to_num(dirichlet_v, nan=0.),
+                                       np.zeros(points.shape[1]))))
 if info != 0:
     raise RuntimeError('GMRES failed to converge')
 u, v, p = np.split(sol, 3)

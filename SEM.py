@@ -57,7 +57,7 @@ def global_nodes_1d(P: int, N_ex: int, dx: float):
     :return: xₚ[p]
     """
     x_e = element_nodes_1d(P, N_ex, dx)
-    return np.unique(np.ravel(x_e))  # TODO check round off error
+    return np.insert(np.ravel(x_e[:, 1:]), 0, 0)  # skip 0-th node of each element; insert 0 at start
 
 
 def element_nodes(P: int, N_ex: int, N_ey: int, dx: float, dy: float):
