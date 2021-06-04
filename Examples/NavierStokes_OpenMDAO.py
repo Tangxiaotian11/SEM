@@ -1,7 +1,6 @@
 import numpy as np
 import SEM
 from OpenMDAO_components.NavierStokes import NavierStokes
-from OpenMDAO_components.ILUPrecon import ILUPrecon
 import openmdao.api as om
 import matplotlib.pyplot as plt
 
@@ -18,10 +17,10 @@ Possible reference solutions from GHIA (doi.org/10.1016/0021-9991(82)90058-4).
 # input
 L_x = 1.    # length in x direction
 L_y = 1.    # length in y direction
-Re = 1.0e3  # REYNOLDS number
+Re = 4.0e2  # REYNOLDS number
 P = 5       # polynomial order
-N_ex = 10   # num of elements in x direction
-N_ey = 10   # num of elements in y direction
+N_ex = 6    # num of elements in x direction
+N_ey = 6    # num of elements in y direction
 tol = 1e-4  # tolerance on residuals
 
 # grid
@@ -40,8 +39,7 @@ model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, u_N=1.
                                                  P=P, N_ex=N_ex, N_ey=N_ey, points=points))
 model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=100, atol=tol, rtol=1e-18)
 model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=10, rho=0.8, c=0.5)
-model.linear_solver = om.ScipyKrylov(iprint=2, atol=1e-8, maxiter=100, restart=100)
-model.linear_solver.precon = ILUPrecon(iprint=2, drop_tol=1.e-5)
+model.linear_solver = om.ScipyKrylov(iprint=2, atol=1e-5, maxiter=4000, restart=4000)
 prob.setup()
 
 

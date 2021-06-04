@@ -2,7 +2,6 @@ import numpy as np
 import SEM
 from OpenMDAO_components.NavierStokes import NavierStokes
 from OpenMDAO_components.ConvectionDiffusion import ConvectionDiffusion
-from OpenMDAO_components.ILUPrecon import ILUPrecon
 import openmdao.api as om
 import matplotlib.pyplot as plt
 
@@ -24,12 +23,12 @@ Possible reference solutions from MARKATOS-PERICLEOUS (doi.org/10.1016/0017-9310
 L_x = 1.    # length in x direction
 L_y = 1.    # length in y direction
 Re = 1.     # REYNOLDS number
-Ra = 1.e5   # RAYLEIGH number
+Ra = 1.e4   # RAYLEIGH number
 Pr = 0.71   # PRANDTL number
 P = 5       # polynomial order
-N_ex = 10   # num of elements in x direction
-N_ey = 10   # num of elements in y direction
-tol = 1e-4  # tolerance on residuals
+N_ex = 6    # num of elements in x direction
+N_ey = 6    # num of elements in y direction
+tol = 1e-2  # tolerance on residuals
 
 # grid
 points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
@@ -53,9 +52,8 @@ model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
 model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=100, atol=tol, rtol=1e-18)
-model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=10, rho=0.8, c=0.5)
-model.linear_solver = om.ScipyKrylov(iprint=2, atol=1e-8, maxiter=100, restart=100)
-model.linear_solver.precon = ILUPrecon(iprint=2, drop_tol=1.e-5)
+model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=5, rho=0.8, c=0.5)
+model.linear_solver = om.ScipyKrylov(iprint=2, atol=1e-4, maxiter=4000, restart=4000)
 prob.setup()
 # om.n2(prob) # prints N2-diagram
 

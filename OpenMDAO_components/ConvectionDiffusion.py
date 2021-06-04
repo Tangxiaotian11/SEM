@@ -58,11 +58,11 @@ class ConvectionDiffusion(om.ImplicitComponent):
         self.C_x, self.C_y = SEM.global_convection_matrices(self.P, self.N_ex, self.N_ey, dx, dy)
         # TODO non-homogeneous NEUMANN conditions
 
-    def setup_partials(self):
-        # indices in the global matrices with possible non-zero entries
-        Full = SEM.assemble(np.ones((self.N_ex, self.N_ey, self.P+1, self.P+1, self.P+1, self.P+1))).tocoo()
-        self.rows, self.cols = Full.row, Full.col
-        self.declare_partials(of='*', wrt='*', rows=self.rows, cols=self.cols)
+        # masks
+        self.mask_dir = np.isclose(self.points[0], 0) * (self.options['T_E'] is not None) \
+              + np.isclose(self.points[0], self.L_x) * (self.options['T_W'] is not None) \
+              + np.isclose(self.points[1], 0) * (self.options['T_S'] is not None) \
+              + np.isclose(self.points[1], self.L_y) * (self.options['T_N'] is not None)
 
     def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
         # load variables
@@ -95,28 +95,21 @@ class ConvectionDiffusion(om.ImplicitComponent):
             mask = np.isclose(self.points[1], self.L_y)  # northern points
             residuals['T'][mask] = T[mask] - self.options['T_N']
 
-        # print('lg(max|res[T]|) = ', np.log10(np.max(np.abs(residuals['T']))))
-
     def linearize(self, inputs, outputs, partials, **kwargs):
         # load variables
         T = outputs['T']
 
         # right-hand-side multiplication of T, i.e. Pe*(C_x @ T)
-        Jac_T_u = self.Pe * sparse.tensordot(self.C_x, T, (2, 0), return_type=sparse.COO).tocsr()
-        Jac_T_v = self.Pe * sparse.tensordot(self.C_y, T, (2, 0), return_type=sparse.COO).tocsr()
+        self.Jac_T_u = self.Pe * sparse.tensordot(self.C_x, T, (2, 0), return_type=sparse.COO).tocsr()
+        self.Jac_T_v = self.Pe * sparse.tensordot(self.C_y, T, (2, 0), return_type=sparse.COO).tocsr()
 
-        # hand over values on the relevant indices; '.getA1()' to convert from np.matrix to np.array
-        partials['T', 'T'] = self.Sys[self.rows, self.cols].getA1()
-        partials['T', 'u'] = Jac_T_u[self.rows, self.cols].getA1()
-        partials['T', 'v'] = Jac_T_v[self.rows, self.cols].getA1()
+    def apply_linear(self, inputs, outputs, d_inputs, d_outputs, d_residuals, mode):
+        if mode != 'fwd':
+            raise ValueError('only forward mode implemented')
 
-        # apply DIRICHLET conditions
-        # subset of the relevant indices whose rows correspond to DIRICHLET boundary points
-        mask_rows = np.isclose(self.points[0][self.rows], 0) * (self.options['T_E'] is not None) \
-                 + np.isclose(self.points[0][self.rows], self.L_x) * (self.options['T_W'] is not None) \
-                 + np.isclose(self.points[1][self.rows], 0) * (self.options['T_S'] is not None) \
-                 + np.isclose(self.points[1][self.rows], self.L_y) * (self.options['T_N'] is not None)
-        partials['T', 'T'][mask_rows] = 0  # clear rows
-        partials['T', 'u'][mask_rows] = 0
-        partials['T', 'v'][mask_rows] = 0
-        partials['T', 'T'][(self.cols == self.rows) * mask_rows] = 1  # set 1 on main diagonal
+        d_outputs._names = d_residuals._names
+        d_residuals['T'] = self.Sys @ d_outputs['T'] + self.Jac_T_u @ d_inputs['u'] + self.Jac_T_v @ d_inputs['v']
+
+        # apply DIRICHLET/NEUMANN conditions
+        # TODO NEUMANN conditions
+        d_residuals['T'][self.mask_dir] = d_outputs['T'][self.mask_dir]
