@@ -1,6 +1,7 @@
 import numpy as np
 import SEM
 import scipy.sparse as sp_sparse
+import scipy.sparse.linalg as linalg
 import sparse  # this package is exclusively used for three dimensional sparse matrices, i.e. the convection matrices
 import openmdao.api as om
 
@@ -44,11 +45,12 @@ class ConvectionDiffusion(om.ImplicitComponent):
         self.P = self.options['P']
         self.N_ex = self.options['N_ex']
         self.N_ey = self.options['N_ey']
+        self.N = (self.N_ex*self.P+1)*(self.N_ey*self.P+1)
 
         # declare variables
-        self.add_input('u', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='u as global vector')
-        self.add_input('v', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='v as global vector')
-        self.add_output('T', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='T as global vector')
+        self.add_input('u', val=np.zeros(self.N), desc='u as global vector')
+        self.add_input('v', val=np.zeros(self.N), desc='v as global vector')
+        self.add_output('T', val=np.zeros(self.N), desc='T as global vector')
 
         # global matrices
         dx = self.L_x / self.N_ex
@@ -60,9 +62,9 @@ class ConvectionDiffusion(om.ImplicitComponent):
 
         # masks
         self.mask_dir = np.isclose(self.points[0], 0) * (self.options['T_E'] is not None) \
-              + np.isclose(self.points[0], self.L_x) * (self.options['T_W'] is not None) \
-              + np.isclose(self.points[1], 0) * (self.options['T_S'] is not None) \
-              + np.isclose(self.points[1], self.L_y) * (self.options['T_N'] is not None)
+                      + np.isclose(self.points[0], self.L_x) * (self.options['T_W'] is not None) \
+                      + np.isclose(self.points[1], 0) * (self.options['T_S'] is not None) \
+                      + np.isclose(self.points[1], self.L_y) * (self.options['T_N'] is not None)
 
     def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
         # load variables
@@ -103,13 +105,39 @@ class ConvectionDiffusion(om.ImplicitComponent):
         self.Jac_T_u = self.Pe * sparse.tensordot(self.C_x, T, (2, 0), return_type=sparse.COO).tocsr()
         self.Jac_T_v = self.Pe * sparse.tensordot(self.C_y, T, (2, 0), return_type=sparse.COO).tocsr()
 
-    def apply_linear(self, inputs, outputs, d_inputs, d_outputs, d_residuals, mode):
+    def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        d_outputs._names = d_residuals._names
-        d_residuals['T'] = self.Sys @ d_outputs['T'] + self.Jac_T_u @ d_inputs['u'] + self.Jac_T_v @ d_inputs['v']
+        def precon_mv(y):  # pure diffusion as preconditioner
+            x = np.zeros(self.N)
+            x[self.mask_dir] = y[self.mask_dir]
+            y[~self.mask_dir] -= self.K[~self.mask_dir, :][:, self.mask_dir] @ y[self.mask_dir]
+            x[~self.mask_dir], info = linalg.cg(self.K[~self.mask_dir, :][:, ~self.mask_dir],
+                                                y[~self.mask_dir], atol=1e-7, tol=0)
+            if info != 0:
+                raise RuntimeError(f'ConvectionDiffusion precon CG: Failed to converge in {info} iterations')
+            return x
+        precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
 
-        # apply DIRICHLET/NEUMANN conditions
-        # TODO NEUMANN conditions
-        d_residuals['T'][self.mask_dir] = d_outputs['T'][self.mask_dir]
+        def jac_mv(dT):
+            jac_mv.count += 1
+            dr_T = self.Sys @ dT
+            dr_T[self.mask_dir] = dT[self.mask_dir]
+            return dr_T
+        jac_mv.count = 0
+        jac_LO = linalg.LinearOperator((self.N,)*2, jac_mv)
+
+        def print_res(xk):
+            print_res.count += 1
+            res = np.linalg.norm(jac_LO.matvec(xk) - d_residuals['T'])
+            print(f'ConvectionDiffusion GMRES: {print_res.count}\t{res}')
+        print_res.count = 0
+
+        d_outputs['T'], info = linalg.gmres(A=jac_LO, b=d_residuals['T'], M=precon_LO, x0=d_outputs['T'],
+                                            atol=1e-7, tol=0, restart=self.N,
+                                            callback=print_res, callback_type='x')
+        if info != 0:
+            raise RuntimeError(f'ConvectionDiffusion GMRES: Failed to converge in {info} iterations')
+        else:
+            print(f'ConvectionDiffusion GMRES: Converged in {print_res.count} iterations and {jac_mv.count} evaluations')

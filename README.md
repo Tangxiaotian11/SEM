@@ -88,7 +88,7 @@ The main procedure is
 
     ```python
     import numpy as np
-    import scipy.sparse.linalg as sp_sparse_linalg
+    import scipy.sparse.linalg as linalg
     import SEM   
  
     L_x = 2     # length in x direction
@@ -122,7 +122,7 @@ The main procedure is
 1. solving with SciPy
     
     ```python
-    u, info = sp_sparse_linalg.cg(H, g)
+    u, info = linalg.cg(H, g)
     ```
 
 ## Authors

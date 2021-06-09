@@ -1,5 +1,6 @@
 import numpy as np
 import SEM
+import scipy.sparse.linalg as linalg
 import scipy.sparse as sp_sparse
 import sparse  # this package is exclusively used for three dimensional sparse matrices, i.e. the convection matrices
 import openmdao.api as om
@@ -45,6 +46,7 @@ class NavierStokes(om.ImplicitComponent):
         self.P = self.options['P']
         self.N_ex = self.options['N_ex']
         self.N_ey = self.options['N_ey']
+        self.N = (self.N_ex*self.P+1)*(self.N_ey*self.P+1)
 
         # check singularity
         if self.Re == 0 and self.Gr != 0:
@@ -52,18 +54,27 @@ class NavierStokes(om.ImplicitComponent):
         self.Gr_over_Re = self.Gr/self.Re if self.Re != 0 else 0.
 
         # declare variables
-        self.add_output('u', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='u as global vector')
-        self.add_output('v', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='v as global vector')
-        self.add_output('pressure', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='pseudo pressure as global vector')
-        self.add_input('T', val=np.zeros((self.N_ex*self.P+1)*(self.N_ey*self.P+1)), desc='T as global vector')
+        self.add_output('u', val=np.zeros(self.N), desc='u as global vector')
+        self.add_output('v', val=np.zeros(self.N), desc='v as global vector')
+        self.add_output('pressure', val=np.zeros(self.N), desc='pseudo pressure as global vector')
+        self.add_input('T', val=np.zeros(self.N), desc='T as global vector')
 
         # global matrices
         dx = self.L_x / self.N_ex
         dy = self.L_y / self.N_ey
         self.M = SEM.global_mass_matrix(self.P, self.N_ex, self.N_ey, dx, dy)
+        self.M_inv = sp_sparse.diags(1/self.M.diagonal()).tocsr()
         self.K = SEM.global_stiffness_matrix(self.P, self.N_ex, self.N_ey, dx, dy)
         self.G_x, self.G_y = SEM.global_gradient_matrices(self.P, self.N_ex, self.N_ey, dx, dy)
         self.C_x, self.C_y = SEM.global_convection_matrices(self.P, self.N_ex, self.N_ey, dx, dy)
+
+        # masks
+        self.mask_bound = np.isclose(self.points[0], 0) \
+                        + np.isclose(self.points[0], self.L_x) \
+                        + np.isclose(self.points[1], 0) \
+                        + np.isclose(self.points[1], self.L_y)
+        self.mask_dir_p = np.isclose(self.points[0], self.L_x/2) \
+                        * np.isclose(self.points[1], self.L_y/2)
 
     def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
         # load variables
@@ -77,11 +88,11 @@ class NavierStokes(om.ImplicitComponent):
                         + sparse.tensordot(self.C_y, v, (1, 0), return_type=sparse.COO).tocsr())
 
         # system matrix
-        self.S = self.K + Conv
+        self.Sys = self.K + Conv
 
         # residuals
-        residuals['u'] = self.S @ u + self.G_x @ pressure
-        residuals['v'] = self.S @ v + self.G_y @ pressure - self.Gr_over_Re * self.M @ T
+        residuals['u'] = self.Sys @ u + self.G_x @ pressure
+        residuals['v'] = self.Sys @ v + self.G_y @ pressure - self.Gr_over_Re * self.M @ T
         residuals['pressure'] = self.G_x @ u + self.G_y @ v
 
         # apply DIRICHLET velocity conditions
@@ -99,15 +110,9 @@ class NavierStokes(om.ImplicitComponent):
         residuals['v'][mask] = v[mask] - 0
 
         # apply artificial NEUMANN pressure condition
-        self.mask_bound = np.isclose(self.points[0], 0) \
-                          + np.isclose(self.points[0], self.L_x) \
-                          + np.isclose(self.points[1], 0) \
-                          + np.isclose(self.points[1], self.L_y)
         residuals['pressure'][self.mask_bound] = self.K[self.mask_bound, :] @ pressure
 
         # apply reference DIRICHLET pressure condition
-        self.mask_dir_p = np.isclose(self.points[0], self.L_x/2) \
-                        * np.isclose(self.points[1], self.L_y/2)
         residuals['pressure'][self.mask_dir_p] = pressure[self.mask_dir_p] - 0
 
     def linearize(self, inputs, outputs, partials, **kwargs):
@@ -117,25 +122,84 @@ class NavierStokes(om.ImplicitComponent):
 
         # JACOBI matrices of the predictor equations including chain rule,
         # i.e. right-hand-side multiplication of the velocities, e.g. Re * C_x @ u
-        self.Jac_u_u = self.S\
+        self.Jac_u_u = self.Sys\
                      + self.Re * sparse.tensordot(self.C_x, u, (2, 0), return_type=sparse.COO).tocsr()
-        self.Jac_v_v = self.S\
+        self.Jac_v_v = self.Sys\
                      + self.Re * sparse.tensordot(self.C_y, v, (2, 0), return_type=sparse.COO).tocsr()
         self.Jac_u_v = self.Re * sparse.tensordot(self.C_y, u, (2, 0), return_type=sparse.COO).tocsr()
         self.Jac_v_u = self.Re * sparse.tensordot(self.C_x, v, (2, 0), return_type=sparse.COO).tocsr()
 
-    def apply_linear(self, inputs, outputs, d_inputs, d_outputs, d_residuals, mode):
+        self.Jac_u_u.eliminate_zeros()
+        self.Jac_u_v.eliminate_zeros()
+        self.Jac_v_u.eliminate_zeros()
+        self.Jac_v_v.eliminate_zeros()
+
+    def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        d_residuals['u'] = self.Jac_u_u @ d_outputs['u'] + self.Jac_u_v @ d_outputs['v'] \
-                         + self.G_x @ d_outputs['pressure']
-        d_residuals['v'] = self.Jac_v_u @ d_outputs['u'] + self.Jac_v_v @ d_outputs['v'] \
-                         + self.G_y @ d_outputs['pressure'] - self.Gr_over_Re * self.M @ d_inputs['T']
-        d_residuals['pressure'] = self.G_x @ d_outputs['u'] + self.G_y @ d_outputs['v']
+        # == LU decomposition ==
+        mask = np.hstack((self.mask_bound,)*2)
+        Jac_velo = sp_sparse.bmat([[self.Jac_u_u, self.Jac_u_v],
+                                   [self.Jac_v_u, self.Jac_v_v]]).tolil()
+        Jac_velo[mask, :] = 0
+        Jac_velo[mask, mask] = 1
+        Jac_velo_inv = linalg.splu(Jac_velo.tocsc())
 
-        # apply DIRICHLET and artificial NEUMANN pressure conditions
-        d_residuals['u'][self.mask_bound] = d_outputs['u'][self.mask_bound]
-        d_residuals['v'][self.mask_bound] = d_outputs['v'][self.mask_bound]
-        d_residuals['pressure'][self.mask_bound] = self.K[self.mask_bound, :] @ d_outputs['pressure']
-        d_residuals['pressure'][self.mask_dir_p] = d_outputs['pressure'][self.mask_dir_p]
+        def solve_jac_velo(dr_u, dr_v):
+            dr_uv = np.hstack((dr_u, dr_v))
+            duv = Jac_velo_inv.solve(dr_uv)
+            return np.split(duv, 2)
+
+        # == solve for pressure ==
+        # RHS
+        b_shur_u, b_shur_v = solve_jac_velo(d_residuals['u'], d_residuals['v'])
+        b_shur = -(self.G_x @ b_shur_u + self.G_y @ b_shur_v)
+        b_shur[self.mask_bound + self.mask_dir_p] = 0
+        b_shur += d_residuals['pressure']
+
+        # LHS
+        def shur_mv(dp):
+            shur_mv.count += 1
+            # apply gradient
+            f_x = self.G_x @ dp
+            f_y = self.G_y @ dp
+            # apply DIRICHLET velocity condition
+            f_x[self.mask_bound] = f_y[self.mask_bound] = 0
+            # apply inverse
+            f_x, f_y = solve_jac_velo(f_x, f_y)
+            # apply divergence
+            f = -(self.G_x @ f_x + self.G_y @ f_y)
+            # apply artificial NEUMANN pressure condition
+            f[self.mask_bound] = self.K[self.mask_bound, :] @ dp
+            # apply DIRICHLET pressure condition
+            f[self.mask_dir_p] = dp[self.mask_dir_p]
+            return f
+        shur_mv.count = 0
+        shur_LO = linalg.LinearOperator((self.N,)*2, shur_mv)
+
+        # solve
+        def print_res(xk):
+            print_res.count += 1
+            res = np.linalg.norm(shur_LO.matvec(xk) - b_shur)
+            print(f'NavierStokes GMRES: {print_res.count}\t{res}')
+        print_res.count = 0
+
+        d_outputs['pressure'], info = linalg.gmres(A=shur_LO, b=b_shur, M=self.M_inv, x0=d_outputs['pressure'],
+                                                   atol=1e-7, tol=0, restart=int(self.N),
+                                                   callback=print_res, callback_type='x')
+        if info != 0:
+            raise RuntimeError(f'NavierStokes GMRES: Failed to converge in {print_res.count} iterations')
+        else:
+            print(f'NavierStokes GMRES: Converged in {print_res.count} iterations and {shur_mv.count} evaluations')
+
+        # == solve for velocities ==
+        # RHS
+        b_u = -self.G_x @ d_outputs['pressure']
+        b_u[self.mask_bound] = 0
+        b_u += d_residuals['u']
+        b_v = -self.G_y @ d_outputs['pressure']
+        b_v[self.mask_bound] = 0
+        b_v += d_residuals['v']
+
+        d_outputs['u'], d_outputs['v'] = solve_jac_velo(b_u, b_v)

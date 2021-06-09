@@ -28,7 +28,7 @@ Pr = 0.71   # PRANDTL number
 P = 5       # polynomial order
 N_ex = 6    # num of elements in x direction
 N_ey = 6    # num of elements in y direction
-tol = 1e-2  # tolerance on residuals
+tol = 1e-3  # tolerance on residuals
 
 # grid
 points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
@@ -52,8 +52,8 @@ model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
 model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=100, atol=tol, rtol=1e-18)
-model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=5, rho=0.8, c=0.5)
-model.linear_solver = om.ScipyKrylov(iprint=2, atol=1e-4, maxiter=4000, restart=4000)
+model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=10, rho=0.8, c=0.2)
+model.linear_solver = om.LinearRunOnce()
 prob.setup()
 # om.n2(prob) # prints N2-diagram
 
