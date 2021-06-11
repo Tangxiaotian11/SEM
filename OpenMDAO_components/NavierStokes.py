@@ -1,3 +1,4 @@
+import time
 import numpy as np
 import SEM
 import scipy.sparse.linalg as linalg
@@ -144,7 +145,11 @@ class NavierStokes(om.ImplicitComponent):
                                    [self.Jac_v_u, self.Jac_v_v]]).tolil()
         Jac_velo[mask, :] = 0
         Jac_velo[mask, mask] = 1
+        print('NavierStokes LU: Started')
+        tStart = time.perf_counter()
         Jac_velo_inv = linalg.splu(Jac_velo.tocsc())
+        print(f'NavierStokes LU: Succeeded in {time.perf_counter()-tStart:0.2f}sec '
+              f'with fill factor {Jac_velo_inv.nnz/Jac_velo.nnz:0.1f}')
 
         def solve_jac_velo(dr_u, dr_v):
             dr_uv = np.hstack((dr_u, dr_v))
@@ -160,7 +165,6 @@ class NavierStokes(om.ImplicitComponent):
 
         # LHS
         def shur_mv(dp):
-            shur_mv.count += 1
             # apply gradient
             f_x = self.G_x @ dp
             f_y = self.G_y @ dp
@@ -175,23 +179,23 @@ class NavierStokes(om.ImplicitComponent):
             # apply DIRICHLET pressure condition
             f[self.mask_dir_p] = dp[self.mask_dir_p]
             return f
-        shur_mv.count = 0
         shur_LO = linalg.LinearOperator((self.N,)*2, shur_mv)
 
         # solve
-        def print_res(xk):
+        def print_res(res):
             print_res.count += 1
-            res = np.linalg.norm(shur_LO.matvec(xk) - b_shur)
-            print(f'NavierStokes GMRES: {print_res.count}\t{res}')
+            if print_res.count % 10 == 0:
+                print(f'NavierStokes GMRES: {print_res.count}\t{res}')
         print_res.count = 0
 
         d_outputs['pressure'], info = linalg.gmres(A=shur_LO, b=b_shur, M=self.M_inv, x0=d_outputs['pressure'],
-                                                   atol=1e-7, tol=0, restart=int(self.N),
-                                                   callback=print_res, callback_type='x')
+                                                   atol=1e-6, tol=0, restart=np.infty,
+                                                   callback=print_res, callback_type='pr_norm')
         if info != 0:
-            raise RuntimeError(f'NavierStokes GMRES: Failed to converge in {print_res.count} iterations')
+            raise RuntimeError(f'NavierStokes GMRES: Failed to converge in {info} iterations')
         else:
-            print(f'NavierStokes GMRES: Converged in {print_res.count} iterations and {shur_mv.count} evaluations')
+            res = np.linalg.norm(shur_LO.matvec(d_outputs['pressure']) - b_shur, ord=np.inf)
+            print(f'NavierStokes GMRES: Converged in {print_res.count} iterations with max-norm {res}')
 
         # == solve for velocities ==
         # RHS

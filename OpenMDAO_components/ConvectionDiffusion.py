@@ -114,30 +114,29 @@ class ConvectionDiffusion(om.ImplicitComponent):
             x[self.mask_dir] = y[self.mask_dir]
             y[~self.mask_dir] -= self.K[~self.mask_dir, :][:, self.mask_dir] @ y[self.mask_dir]
             x[~self.mask_dir], info = linalg.cg(self.K[~self.mask_dir, :][:, ~self.mask_dir],
-                                                y[~self.mask_dir], atol=1e-7, tol=0)
+                                                y[~self.mask_dir], atol=1e-6, tol=0)
             if info != 0:
                 raise RuntimeError(f'ConvectionDiffusion precon CG: Failed to converge in {info} iterations')
             return x
         precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
 
         def jac_mv(dT):
-            jac_mv.count += 1
             dr_T = self.Sys @ dT
             dr_T[self.mask_dir] = dT[self.mask_dir]
             return dr_T
-        jac_mv.count = 0
         jac_LO = linalg.LinearOperator((self.N,)*2, jac_mv)
 
-        def print_res(xk):
+        def print_res(res):
             print_res.count += 1
-            res = np.linalg.norm(jac_LO.matvec(xk) - d_residuals['T'])
-            print(f'ConvectionDiffusion GMRES: {print_res.count}\t{res}')
+            if print_res.count % 10 == 0:
+                print(f'ConvectionDiffusion GMRES: {print_res.count}\t{res}')
         print_res.count = 0
 
         d_outputs['T'], info = linalg.gmres(A=jac_LO, b=d_residuals['T'], M=precon_LO, x0=d_outputs['T'],
-                                            atol=1e-7, tol=0, restart=self.N,
-                                            callback=print_res, callback_type='x')
+                                            atol=1e-6, tol=0, restart=np.inf,
+                                            callback=print_res, callback_type='pr_norm')
         if info != 0:
             raise RuntimeError(f'ConvectionDiffusion GMRES: Failed to converge in {info} iterations')
         else:
-            print(f'ConvectionDiffusion GMRES: Converged in {print_res.count} iterations and {jac_mv.count} evaluations')
+            res = np.linalg.norm(jac_LO.matvec(d_outputs['T']) - d_residuals['T'], ord=np.inf)
+            print(f'ConvectionDiffusion GMRES: Converged in {print_res.count} iterations with max-norm {res}')
