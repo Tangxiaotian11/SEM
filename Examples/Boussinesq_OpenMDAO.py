@@ -23,11 +23,11 @@ Possible reference solutions from MARKATOS-PERICLEOUS (doi.org/10.1016/0017-9310
 L_x = 1.    # length in x direction
 L_y = 1.    # length in y direction
 Re = 1.     # REYNOLDS number
-Ra = 1.e4   # RAYLEIGH number
+Ra = 1.e3   # RAYLEIGH number
 Pr = 0.71   # PRANDTL number
-P = 5       # polynomial order
-N_ex = 6    # num of elements in x direction
-N_ey = 6    # num of elements in y direction
+P = 4       # polynomial order
+N_ex = 16   # num of elements in x direction
+N_ey = 16   # num of elements in y direction
 tol = 1e-3  # tolerance on residuals
 
 # grid
@@ -44,15 +44,15 @@ T[np.isclose(points[0], L_x)] = 0.5
 # initialize OpenMDAO solver
 prob = om.Problem()
 model = prob.model
-model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
-                                                 P=P, N_ex=N_ex, N_ey=N_ey, points=points))
 model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion(L_x=L_x, L_y=L_y, Pe=Re*Pr, T_W=0.5, T_E=-0.5,
                                                                P=P, N_ex=N_ex, N_ey=N_ey, points=points))
+model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
+                                                 P=P, N_ex=N_ex, N_ey=N_ey, points=points))
 model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
 model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=100, atol=tol, rtol=1e-18)
-model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=10, rho=0.8, c=0.2)
+model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=5, rho=0.8, c=0.2)
 model.linear_solver = om.LinearRunOnce()
 prob.setup()
 # om.n2(prob) # prints N2-diagram
@@ -72,13 +72,13 @@ v_e = SEM.scatter(v, P, N_ex, N_ey)
 T_e = SEM.scatter(T, P, N_ex, N_ey)
 
 # plot
-x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 51), np.linspace(0, L_y, 51), indexing='ij')
+x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 101), np.linspace(0, L_y, 101), indexing='ij')
 u_plot = SEM.eval_interpolation(u_e, points_e, (x_plot, y_plot))
 v_plot = SEM.eval_interpolation(v_e, points_e, (x_plot, y_plot))
 T_plot = SEM.eval_interpolation(T_e, points_e, (x_plot, y_plot))
 fig = plt.figure(figsize=(L_x*6, L_y*6))
 ax = fig.gca()
-ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=2.5)
+ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=3)
 CS = ax.contour(x_plot, y_plot, T_plot, levels=11, colors='k', linestyles='solid')
 ax.clabel(CS, inline=True)
 ax.set_title(f"Re={Re:.0e}, Ra={Ra:.0e}, Pr={Pr}, P={P}, N_ex={N_ex}, N_ey={N_ey}, tol={tol:.0e}",

@@ -135,6 +135,13 @@ class NavierStokes(om.ImplicitComponent):
         self.Jac_v_u.eliminate_zeros()
         self.Jac_v_v.eliminate_zeros()
 
+    def apply_linear(self, inputs, outputs, d_inputs, d_outputs, d_residuals, mode):
+        if mode != 'fwd':
+            raise ValueError('only forward mode implemented')
+
+        d_residuals['v'] = - self.Gr_over_Re * self.M @ d_inputs['T']
+        d_residuals['v'][self.mask_bound] = 0  # apply DIRICHLET conditions
+
     def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')

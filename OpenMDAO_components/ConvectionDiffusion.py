@@ -105,19 +105,26 @@ class ConvectionDiffusion(om.ImplicitComponent):
         self.Jac_T_u = self.Pe * sparse.tensordot(self.C_x, T, (2, 0), return_type=sparse.COO).tocsr()
         self.Jac_T_v = self.Pe * sparse.tensordot(self.C_y, T, (2, 0), return_type=sparse.COO).tocsr()
 
+    def apply_linear(self, inputs, outputs, d_inputs, d_outputs, d_residuals, mode):
+        if mode != 'fwd':
+            raise ValueError('only forward mode implemented')
+
+        d_residuals['T'] = self.Jac_T_u @ d_inputs['u'] + self.Jac_T_v @ d_inputs['v']
+        d_residuals['T'][self.mask_dir] = 0  # apply DIRICHLET conditions
+
     def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        def precon_mv(y):  # pure diffusion as preconditioner
-            x = np.zeros(self.N)
-            x[self.mask_dir] = y[self.mask_dir]
-            y[~self.mask_dir] -= self.K[~self.mask_dir, :][:, self.mask_dir] @ y[self.mask_dir]
-            x[~self.mask_dir], info = linalg.cg(self.K[~self.mask_dir, :][:, ~self.mask_dir],
-                                                y[~self.mask_dir], atol=1e-6, tol=0)
+        def precon_mv(c):  # pure diffusion as preconditioner
+            z = np.zeros(self.N)
+            z[self.mask_dir] = c[self.mask_dir]
+            c[~self.mask_dir] -= self.K[~self.mask_dir, :][:, self.mask_dir] @ c[self.mask_dir]
+            z[~self.mask_dir], info = linalg.cg(self.K[~self.mask_dir, :][:, ~self.mask_dir],
+                                                c[~self.mask_dir], atol=1e-6, tol=0)
             if info != 0:
                 raise RuntimeError(f'ConvectionDiffusion precon CG: Failed to converge in {info} iterations')
-            return x
+            return z
         precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
 
         def jac_mv(dT):
