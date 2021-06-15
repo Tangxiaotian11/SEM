@@ -1,7 +1,7 @@
 # SEM
 
 <p align="center">
-    <img src="https://raw.githubusercontent.com/SEhrm/SEM/master/Examples/Stokes_SciPy.png" width="400" height="400" alt="test"/>
+    <img src="https://raw.githubusercontent.com/SEhrm/SEM/matrixFree/Examples/Boussinesq_OpenMDAO_1E4.png" width="400" height="400" alt="test"/>
 </p>
 Continuous GALERKIN spectral element method with GAUSS-LEGENDRE-LOBATTO nodal LAGRANGE polynomial base.
 

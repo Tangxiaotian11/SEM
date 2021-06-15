@@ -141,20 +141,23 @@ class NavierStokes(om.ImplicitComponent):
 
         d_residuals['v'] = - self.Gr_over_Re * self.M @ d_inputs['T']
         d_residuals['v'][self.mask_bound] = 0  # apply DIRICHLET conditions
+        d_residuals['v'] *= 5.e-1
 
     def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
         # == LU decomposition ==
+        print('NavierStokes LU: Started')
+        tStart = time.perf_counter()
         mask = np.hstack((self.mask_bound,)*2)
         Jac_velo = sp_sparse.bmat([[self.Jac_u_u, self.Jac_u_v],
                                    [self.Jac_v_u, self.Jac_v_v]]).tolil()
         Jac_velo[mask, :] = 0
         Jac_velo[mask, mask] = 1
-        print('NavierStokes LU: Started')
-        tStart = time.perf_counter()
-        Jac_velo_inv = linalg.splu(Jac_velo.tocsc())
+        Jac_velo = Jac_velo.tocsc()
+        Jac_velo.eliminate_zeros()
+        Jac_velo_inv = linalg.splu(Jac_velo)
         print(f'NavierStokes LU: Succeeded in {time.perf_counter()-tStart:0.2f}sec '
               f'with fill factor {Jac_velo_inv.nnz/Jac_velo.nnz:0.1f}')
 

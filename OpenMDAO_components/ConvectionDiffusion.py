@@ -111,6 +111,7 @@ class ConvectionDiffusion(om.ImplicitComponent):
 
         d_residuals['T'] = self.Jac_T_u @ d_inputs['u'] + self.Jac_T_v @ d_inputs['v']
         d_residuals['T'][self.mask_dir] = 0  # apply DIRICHLET conditions
+        d_residuals['T'] *= 5.e-1
 
     def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':
@@ -121,7 +122,8 @@ class ConvectionDiffusion(om.ImplicitComponent):
             z[self.mask_dir] = c[self.mask_dir]
             c[~self.mask_dir] -= self.K[~self.mask_dir, :][:, self.mask_dir] @ c[self.mask_dir]
             z[~self.mask_dir], info = linalg.cg(self.K[~self.mask_dir, :][:, ~self.mask_dir],
-                                                c[~self.mask_dir], atol=1e-6, tol=0)
+                                                c[~self.mask_dir], atol=1e-6, tol=0,
+                                                M=sp_sparse.diags(1/self.K.diagonal()[~self.mask_dir]))
             if info != 0:
                 raise RuntimeError(f'ConvectionDiffusion precon CG: Failed to converge in {info} iterations')
             return z

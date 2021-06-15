@@ -15,21 +15,24 @@ Possible reference solutions from GHIA (doi.org/10.1016/0021-9991(82)90058-4).
 """
 
 # input
-L_x = 1.    # length in x direction
-L_y = 1.    # length in y direction
-Re = 4.0e2  # REYNOLDS number
-P = 5       # polynomial order
-N_ex = 12   # num of elements in x direction
-N_ey = 12   # num of elements in y direction
-tol = 1e-4  # tolerance on residuals
+L_x = 1.      # length in x direction
+L_y = 1.      # length in y direction
+Re = 4.0e2    # REYNOLDS number
+P = 4         # polynomial order
+N_ex = 16     # num of elements in x direction
+N_ey = 16     # num of elements in y direction
+mtol = 1.e-4  # tolerance on mean square residual
+
+N = (N_ex*P+1)*(N_ey*P+1)
+tol = 1.e-4*np.sqrt(N)
 
 # grid
 points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
 points_e = SEM.element_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
 
 # initialize global coefficients vectors
-u = np.zeros(points.shape[1])
-v = np.zeros(points.shape[1])
+u = np.zeros(N)
+v = np.zeros(N)
 u[np.isclose(points[1], L_y)] = 1.  # initial guess
 
 # initialize OpenMDAO solver
@@ -37,7 +40,7 @@ prob = om.Problem()
 model = prob.model
 model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, u_N=1.,
                                                  P=P, N_ex=N_ex, N_ey=N_ey, points=points))
-model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=100, atol=tol, rtol=1e-18)
+model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=100, atol=tol, rtol=0)
 model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=10, rho=0.8, c=0.2)
 model.linear_solver = om.LinearRunOnce()
 prob.setup()
@@ -59,7 +62,7 @@ v_plot = SEM.eval_interpolation(v_e, points_e, (x_plot, y_plot))
 fig = plt.figure(figsize=(L_x*4, L_y*4))
 ax = fig.gca()
 ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=3.5)
-ax.set_title(f"Re={Re:.0e}, P={P}, N_ex={N_ex}, N_ey={N_ey}, tol={tol:.0e}", fontsize='small')
+ax.set_title(f"Re={Re:.0e}, P={P}, N_ex={N_ex}, N_ey={N_ey}, mtol={mtol:.0e}", fontsize='small')
 ax.set_xlabel('x')
 ax.set_ylabel('y')
 plt.show()
