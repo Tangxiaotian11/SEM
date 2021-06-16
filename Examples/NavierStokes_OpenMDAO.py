@@ -17,10 +17,10 @@ Possible reference solutions from GHIA (doi.org/10.1016/0021-9991(82)90058-4).
 # input
 L_x = 1.      # length in x direction
 L_y = 1.      # length in y direction
-Re = 4.0e2    # REYNOLDS number
+Re = 1.0e2    # REYNOLDS number
 P = 4         # polynomial order
-N_ex = 16     # num of elements in x direction
-N_ey = 16     # num of elements in y direction
+N_ex = 8     # num of elements in x direction
+N_ey = 8     # num of elements in y direction
 mtol = 1.e-4  # tolerance on mean square residual
 
 N = (N_ex*P+1)*(N_ey*P+1)

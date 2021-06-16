@@ -1,4 +1,3 @@
-import time
 import numpy as np
 import SEM
 import scipy.sparse.linalg as linalg
@@ -147,23 +146,22 @@ class NavierStokes(om.ImplicitComponent):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        # == LU decomposition ==
-        print('NavierStokes LU: Started')
-        tStart = time.perf_counter()
+        # == velocity JACOBIan ==
         mask = np.hstack((self.mask_bound,)*2)
         Jac_velo = sp_sparse.bmat([[self.Jac_u_u, self.Jac_u_v],
-                                   [self.Jac_v_u, self.Jac_v_v]]).tolil()
-        Jac_velo[mask, :] = 0
-        Jac_velo[mask, mask] = 1
-        Jac_velo = Jac_velo.tocsc()
+                                   [self.Jac_v_u, self.Jac_v_v]]).tocsr()
         Jac_velo.eliminate_zeros()
-        Jac_velo_inv = linalg.splu(Jac_velo)
-        print(f'NavierStokes LU: Succeeded in {time.perf_counter()-tStart:0.2f}sec '
-              f'with fill factor {Jac_velo_inv.nnz/Jac_velo.nnz:0.1f}')
+        Precon_inv = sp_sparse.diags(1/Jac_velo.diagonal()[~mask]).tocsr()
 
         def solve_jac_velo(dr_u, dr_v):
             dr_uv = np.hstack((dr_u, dr_v))
-            duv = Jac_velo_inv.solve(dr_uv)
+            duv = np.zeros(self.N*2)
+            duv[mask] = dr_uv[mask]
+            duv[~mask], info = linalg.bicg(Jac_velo[~mask, :][:, ~mask],
+                                           dr_uv[~mask] - Jac_velo[~mask, :][:, mask] @ dr_uv[mask],
+                                           M=Precon_inv, tol=0, atol=1e-6)
+            if info != 0:
+                raise RuntimeError(f'NavierStokes BiCG: Failed to converge in {info} iterations')
             return np.split(duv, 2)
 
         # == solve for pressure ==

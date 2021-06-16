@@ -23,11 +23,11 @@ Possible reference solutions from MARKATOS-PERICLEOUS (doi.org/10.1016/0017-9310
 L_x = 1.      # length in x direction
 L_y = 1.      # length in y direction
 Re = 1.       # REYNOLDS number
-Ra = 1.e4     # RAYLEIGH number
+Ra = 1.e3     # RAYLEIGH number
 Pr = 0.71     # PRANDTL number
 P = 4         # polynomial order
-N_ex = 16     # num of elements in x direction
-N_ey = 16     # num of elements in y direction
+N_ex = 8     # num of elements in x direction
+N_ey = 8     # num of elements in y direction
 mtol = 1.e-4  # tolerance on mean square residual
 
 N = (N_ex*P+1)*(N_ey*P+1)
