@@ -151,15 +151,18 @@ class NavierStokes(om.ImplicitComponent):
         Jac_velo = sp_sparse.bmat([[self.Jac_u_u, self.Jac_u_v],
                                    [self.Jac_v_u, self.Jac_v_v]]).tocsr()
         Jac_velo.eliminate_zeros()
-        Precon_inv = sp_sparse.diags(1/Jac_velo.diagonal()[~mask]).tocsr()
+        A = Jac_velo[~mask, :][:, ~mask]
+        precon = linalg.spilu(A, drop_tol=1e-7, fill_factor=5)
+        precon_LO = linalg.LinearOperator((A.get_shape()),
+                                          matvec=lambda x: precon.solve(x),
+                                          rmatvec=lambda x: precon.solve(x, 'T'))
 
         def solve_jac_velo(dr_u, dr_v):
             dr_uv = np.hstack((dr_u, dr_v))
             duv = np.zeros(self.N*2)
             duv[mask] = dr_uv[mask]
-            duv[~mask], info = linalg.bicg(Jac_velo[~mask, :][:, ~mask],
-                                           dr_uv[~mask] - Jac_velo[~mask, :][:, mask] @ dr_uv[mask],
-                                           M=Precon_inv, tol=0, atol=1e-6)
+            dr_uv[~mask] -= Jac_velo[~mask, :][:, mask] @ dr_uv[mask]
+            duv[~mask], info = linalg.bicg(A, dr_uv[~mask], M=precon_LO, tol=0, atol=1e-6)
             if info != 0:
                 raise RuntimeError(f'NavierStokes BiCG: Failed to converge in {info} iterations')
             return np.split(duv, 2)
