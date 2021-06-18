@@ -35,6 +35,7 @@ class ConvectionDiffusion(om.ImplicitComponent):
         self.options.declare('dT_E', types=float, default=None, desc='normal derivative of T at x=L_x')
         self.options.declare('dT_S', types=float, default=None, desc='normal derivative of T at y=0')
         self.options.declare('dT_N', types=float, default=None, desc='normal derivative of T at y=L_y')
+        self.options.declare('mtol', types=float, default=1.e-7, desc='tolerance on mean square residual')
 
     def setup(self):
         # load parameters
@@ -42,10 +43,10 @@ class ConvectionDiffusion(om.ImplicitComponent):
         self.L_y = self.options['L_y']
         self.Pe = self.options['Pe']
         self.points = self.options['points']
-        self.P = self.options['P']
-        self.N_ex = self.options['N_ex']
-        self.N_ey = self.options['N_ey']
-        self.N = (self.N_ex*self.P+1)*(self.N_ey*self.P+1)
+        P = self.options['P']
+        N_ex = self.options['N_ex']
+        N_ey = self.options['N_ey']
+        self.N = (N_ex*P+1)*(N_ey*P+1)
 
         # declare variables
         self.add_input('u', val=np.zeros(self.N), desc='u as global vector')
@@ -53,11 +54,11 @@ class ConvectionDiffusion(om.ImplicitComponent):
         self.add_output('T', val=np.zeros(self.N), desc='T as global vector')
 
         # global matrices
-        dx = self.L_x / self.N_ex
-        dy = self.L_y / self.N_ey
-        self.M = SEM.global_mass_matrix(self.P, self.N_ex, self.N_ey, dx, dy)
-        self.K = SEM.global_stiffness_matrix(self.P, self.N_ex, self.N_ey, dx, dy)
-        self.C_x, self.C_y = SEM.global_convection_matrices(self.P, self.N_ex, self.N_ey, dx, dy)
+        dx = self.L_x / N_ex
+        dy = self.L_y / N_ey
+        self.M = SEM.global_mass_matrix(P, N_ex, N_ey, dx, dy)
+        self.K = SEM.global_stiffness_matrix(P, N_ex, N_ey, dx, dy)
+        self.C_x, self.C_y = SEM.global_convection_matrices(P, N_ex, N_ey, dx, dy)
         # TODO non-homogeneous NEUMANN conditions
 
         # masks
@@ -117,35 +118,34 @@ class ConvectionDiffusion(om.ImplicitComponent):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        def precon_mv(c):  # pure diffusion as preconditioner
-            z = np.zeros(self.N)
-            z[self.mask_dir] = c[self.mask_dir]
-            c[~self.mask_dir] -= self.K[~self.mask_dir, :][:, self.mask_dir] @ c[self.mask_dir]
-            z[~self.mask_dir], info = linalg.cg(self.K[~self.mask_dir, :][:, ~self.mask_dir],
-                                                c[~self.mask_dir], atol=1e-6, tol=0,
-                                                M=sp_sparse.diags(1/self.K.diagonal()[~self.mask_dir]))
-            if info != 0:
-                raise RuntimeError(f'ConvectionDiffusion precon CG: Failed to converge in {info} iterations')
-            return z
-        precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
+        atol = self.options['mtol'] * np.sqrt(self.N)
 
+        # LHS
         def jac_mv(dT):
             dr_T = self.Sys @ dT
             dr_T[self.mask_dir] = dT[self.mask_dir]
             return dr_T
         jac_LO = linalg.LinearOperator((self.N,)*2, jac_mv)
 
-        def print_res(res):
-            print_res.count += 1
-            if print_res.count % 10 == 0:
-                print(f'ConvectionDiffusion GMRES: {print_res.count}\t{res}')
-        print_res.count = 0
+        # JACOBI precon
+        def precon_mv(c):
+            z = c/self.Sys.diagonal()
+            z[self.mask_dir] = c[self.mask_dir]
+            return z
+        precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
+
+        # solve
+        def gmres_counter(res):
+            gmres_counter.count += 1
+            if gmres_counter.count % 10 == 0:
+                print(f'ConvectionDiffusion GMRES: {gmres_counter.count}\t{res}')
+        gmres_counter.count = 0
 
         d_outputs['T'], info = linalg.gmres(A=jac_LO, b=d_residuals['T'], M=precon_LO, x0=d_outputs['T'],
-                                            atol=1e-6, tol=0, restart=np.inf,
-                                            callback=print_res, callback_type='pr_norm')
+                                            atol=atol, tol=0, restart=np.inf,
+                                            callback=gmres_counter, callback_type='pr_norm')
         if info != 0:
             raise RuntimeError(f'ConvectionDiffusion GMRES: Failed to converge in {info} iterations')
         else:
             res = np.linalg.norm(jac_LO.matvec(d_outputs['T']) - d_residuals['T'], ord=np.inf)
-            print(f'ConvectionDiffusion GMRES: Converged in {print_res.count} iterations with max-norm {res}')
+            print(f'ConvectionDiffusion GMRES: Converged in {gmres_counter.count} iterations with max-norm {res}')

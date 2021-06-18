@@ -36,6 +36,7 @@ class NavierStokes(om.ImplicitComponent):
         self.options.declare('u_S', types=float, default=0., desc='tangential velocity at y=0')
         self.options.declare('v_E', types=float, default=0., desc='tangential velocity at x=0')
         self.options.declare('v_W', types=float, default=0., desc='tangential velocity at x=L_x')
+        self.options.declare('mtol', types=float, default=1.e-7, desc='tolerance on mean square residual')
 
     def setup(self):
         # load parameters
@@ -44,10 +45,10 @@ class NavierStokes(om.ImplicitComponent):
         self.points = self.options['points']
         self.L_x = self.options['L_x']
         self.L_y = self.options['L_y']
-        self.P = self.options['P']
-        self.N_ex = self.options['N_ex']
-        self.N_ey = self.options['N_ey']
-        self.N = (self.N_ex*self.P+1)*(self.N_ey*self.P+1)
+        P = self.options['P']
+        N_ex = self.options['N_ex']
+        N_ey = self.options['N_ey']
+        self.N = (N_ex*P+1)*(N_ey*P+1)
 
         # check singularity
         if self.Re == 0 and self.Gr != 0:
@@ -61,13 +62,12 @@ class NavierStokes(om.ImplicitComponent):
         self.add_input('T', val=np.zeros(self.N), desc='T as global vector')
 
         # global matrices
-        dx = self.L_x / self.N_ex
-        dy = self.L_y / self.N_ey
-        self.M = SEM.global_mass_matrix(self.P, self.N_ex, self.N_ey, dx, dy)
-        self.M_inv = sp_sparse.diags(1/self.M.diagonal()).tocsr()
-        self.K = SEM.global_stiffness_matrix(self.P, self.N_ex, self.N_ey, dx, dy)
-        self.G_x, self.G_y = SEM.global_gradient_matrices(self.P, self.N_ex, self.N_ey, dx, dy)
-        self.C_x, self.C_y = SEM.global_convection_matrices(self.P, self.N_ex, self.N_ey, dx, dy)
+        dx = self.L_x / N_ex
+        dy = self.L_y / N_ey
+        self.M = SEM.global_mass_matrix(P, N_ex, N_ey, dx, dy)
+        self.K = SEM.global_stiffness_matrix(P, N_ex, N_ey, dx, dy)
+        self.G_x, self.G_y = SEM.global_gradient_matrices(P, N_ex, N_ey, dx, dy)
+        self.C_x, self.C_y = SEM.global_convection_matrices(P, N_ex, N_ey, dx, dy)
 
         # masks
         self.mask_bound = np.isclose(self.points[0], 0) \
@@ -147,12 +147,14 @@ class NavierStokes(om.ImplicitComponent):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
+        atol = self.options['mtol']*np.sqrt(self.N)
+
         # == LU decomposition ==
         print('NavierStokes LU: Started')
         tStart = time.perf_counter()
         mask = np.hstack((self.mask_bound,)*2)
         Jac_velo = sp_sparse.bmat([[self.Jac_u_u, self.Jac_u_v],
-                                   [self.Jac_v_u, self.Jac_v_v]]).tolil()
+                                   [self.Jac_v_u, self.Jac_v_v]], format='lil')
         Jac_velo[mask, :] = 0
         Jac_velo[mask, mask] = 1
         Jac_velo = Jac_velo.tocsc()
@@ -191,21 +193,29 @@ class NavierStokes(om.ImplicitComponent):
             return f
         shur_LO = linalg.LinearOperator((self.N,)*2, shur_mv)
 
-        # solve
-        def print_res(res):
-            print_res.count += 1
-            if print_res.count % 10 == 0:
-                print(f'NavierStokes GMRES: {print_res.count}\t{res}')
-        print_res.count = 0
+        # mass precon
+        def precon_mv(c):
+            z = c/self.M.diagonal()
+            z[self.mask_dir_p] = c[self.mask_dir_p]
+            return z
+        precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
 
-        d_outputs['pressure'], info = linalg.gmres(A=shur_LO, b=b_shur, M=self.M_inv, x0=d_outputs['pressure'],
-                                                   atol=1e-6, tol=0, restart=np.infty,
-                                                   callback=print_res, callback_type='pr_norm')
+        # solve
+        def gmres_counter(res):
+            gmres_counter.count += 1
+            if gmres_counter.count % 10 == 0:
+                print(f'NavierStokes GMRES: {gmres_counter.count}\t{res}')
+        gmres_counter.count = 0
+
+        d_outputs['pressure'], info = linalg.gmres(A=shur_LO, b=b_shur, M=precon_LO, x0=d_outputs['pressure'],
+                                                   atol=atol, tol=0,
+                                                   restart=np.infty,
+                                                   callback=gmres_counter, callback_type='pr_norm')
         if info != 0:
             raise RuntimeError(f'NavierStokes GMRES: Failed to converge in {info} iterations')
         else:
             res = np.linalg.norm(shur_LO.matvec(d_outputs['pressure']) - b_shur, ord=np.inf)
-            print(f'NavierStokes GMRES: Converged in {print_res.count} iterations with max-norm {res}')
+            print(f'NavierStokes GMRES: Converged in {gmres_counter.count} iterations with max-norm {res}')
 
         # == solve for velocities ==
         # RHS
