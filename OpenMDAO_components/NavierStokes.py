@@ -1,10 +1,10 @@
-import time
 import numpy as np
-import SEM
-import scipy.sparse.linalg as linalg
 import scipy.sparse as sp_sparse
+import scipy.sparse.linalg as linalg
 import sparse  # this package is exclusively used for three dimensional sparse matrices, i.e. the convection matrices
+import SEM
 import openmdao.api as om
+import time
 
 
 class NavierStokes(om.ImplicitComponent):
@@ -24,19 +24,23 @@ class NavierStokes(om.ImplicitComponent):
 
     def initialize(self):
         # declare parameters
-        self.options.declare('L_x', types=float, desc='length in x direction')
-        self.options.declare('L_y', types=float, desc='length in y direction')
-        self.options.declare('Re', types=float, desc='REYNOLDS number')
-        self.options.declare('Gr', types=float, default=0., desc='GRASHOF number')
+        self.options.declare('L_x', types=(float, int), desc='length in x direction')
+        self.options.declare('L_y', types=(float, int), desc='length in y direction')
+        self.options.declare('Re', types=(float, int), desc='REYNOLDS number')
+        self.options.declare('Gr', types=(float, int), default=0, desc='GRASHOF number')
         self.options.declare('P', types=int, desc='polynomial order')
         self.options.declare('N_ex', types=int, desc='num of elements in x direction')
         self.options.declare('N_ey', types=int, desc='num of elements in y direction')
         self.options.declare('points', types=np.ndarray, desc='points as global vectors [x, y]')
-        self.options.declare('u_N', types=float, default=0., desc='tangential velocity at y=L_y')
-        self.options.declare('u_S', types=float, default=0., desc='tangential velocity at y=0')
-        self.options.declare('v_E', types=float, default=0., desc='tangential velocity at x=0')
-        self.options.declare('v_W', types=float, default=0., desc='tangential velocity at x=L_x')
-        self.options.declare('mtol', types=float, default=1.e-7, desc='tolerance on mean square residual')
+        self.options.declare('u_N', types=(float, int), default=0, desc='tangential velocity at y=L_y')
+        self.options.declare('u_S', types=(float, int), default=0, desc='tangential velocity at y=0')
+        self.options.declare('v_E', types=(float, int), default=0, desc='tangential velocity at x=0')
+        self.options.declare('v_W', types=(float, int), default=0, desc='tangential velocity at x=L_x')
+        self.options.declare('mtol', types=(float, int), default=1e-7, desc='tolerance on mean square residual')
+        self.options.declare('solver_type', types=str, default='lu', desc='solver: lu/qmr')
+        self.options.declare('iprecon_type', types=str, default='jac', desc='inner preconditioner (qmr): jac/ilu/no')
+        self.options.declare('drop_tol', types=(float, int), default=1e-3, desc='ILU drop tolerance')
+        self.options.declare('fill_factor', types=(float, int), default=2, desc='ILU fill factor')
 
     def setup(self):
         # load parameters
@@ -121,7 +125,7 @@ class NavierStokes(om.ImplicitComponent):
         u = outputs['u']
         v = outputs['v']
 
-        # JACOBI matrices of the predictor equations including chain rule,
+        # JACOBI matrices of the predictor equations ignoring the DIRICHLET BC but including the chain rule,
         # i.e. right-hand-side multiplication of the velocities, e.g. Re * C_x @ u
         self.Jac_u_u = self.Sys\
                      + self.Re * sparse.tensordot(self.C_x, u, (2, 0), return_type=sparse.COO).tocsr()
@@ -148,31 +152,90 @@ class NavierStokes(om.ImplicitComponent):
             raise ValueError('only forward mode implemented')
 
         atol = self.options['mtol']*np.sqrt(self.N)
+        solver_type = self.options['solver_type']
+        iprecon_type = self.options['iprecon_type']
 
-        # == LU decomposition ==
-        print('NavierStokes LU: Started')
-        tStart = time.perf_counter()
-        mask = np.hstack((self.mask_bound,)*2)
-        Jac_velo = sp_sparse.bmat([[self.Jac_u_u, self.Jac_u_v],
-                                   [self.Jac_v_u, self.Jac_v_v]], format='lil')
-        Jac_velo[mask, :] = 0
-        Jac_velo[mask, mask] = 1
-        Jac_velo = Jac_velo.tocsc()
-        Jac_velo.eliminate_zeros()
-        Jac_velo_inv = linalg.splu(Jac_velo)
-        print(f'NavierStokes LU: Succeeded in {time.perf_counter()-tStart:0.2f}sec '
-              f'with fill factor {Jac_velo_inv.nnz/Jac_velo.nnz:0.1f}')
+        # == Jac_velo solver ==
+        if solver_type == 'lu':  # LU
+            print('NavierStokes LU: Started')
+            tStart = time.perf_counter()
+            mask = np.hstack((self.mask_bound,)*2)
+            Jac_velo = sp_sparse.bmat([[self.Jac_u_u, self.Jac_u_v],
+                                       [self.Jac_v_u, self.Jac_v_v]], format='lil')
+            Jac_velo[mask, :] = 0  # apply DIRICHLET condition
+            Jac_velo[mask, mask] = 1  # ...
+            Jac_velo = Jac_velo.tocsc()
+            Jac_velo_lu = linalg.splu(Jac_velo)
+            print(f'NavierStokes LU: Succeeded in {time.perf_counter()-tStart:0.2f}sec '
+                  f'with fill factor {Jac_velo_lu.nnz/Jac_velo.nnz:0.1f}')
 
-        def solve_jac_velo(dr_u, dr_v):
-            dr_uv = np.hstack((dr_u, dr_v))
-            duv = Jac_velo_inv.solve(dr_uv)
-            return np.split(duv, 2)
+            def solve_jac_velo(dr_u, dr_v):
+                dr_uv = np.hstack((dr_u, dr_v))
+                duv = Jac_velo_lu.solve(dr_uv)
+                return np.split(duv, 2)
+
+        elif solver_type == 'qmr':  # quasi minimal residual
+            mask = np.hstack((self.mask_bound,)*2)
+            Jac_velo = sp_sparse.bmat([[self.Jac_u_u, self.Jac_u_v],
+                                       [self.Jac_v_u, self.Jac_v_v]], format='csr')
+            A = Jac_velo[~mask, :][:, ~mask]  # principal submatrix
+
+            # preconditioners
+            if iprecon_type == 'jac':  # JACOBI
+                def iprecon_mv(c):
+                    z = c/A.diagonal()
+                    return z
+                iprecon_LO = linalg.LinearOperator(A.get_shape(), matvec=iprecon_mv, rmatvec=iprecon_mv)
+                id_LO = linalg.aslinearoperator(sp_sparse.identity(A.get_shape()[0]))
+            elif iprecon_type == 'ilu':  # ILU
+                print('NavierStokes inner QMR precon ILU: Started')
+                tStart = time.perf_counter()
+                A_ilu = linalg.spilu(A.tocsc(),
+                                     drop_tol=self.options['drop_tol'],
+                                     fill_factor=self.options['fill_factor'])
+                print(f'NavierStokes inner QMR precon ILU: Succeeded in {time.perf_counter()-tStart:0.2f}sec '
+                      f'with fill factor {A_ilu.nnz/A.nnz:0.1f}')
+                iprecon_LO = linalg.LinearOperator((A.get_shape()), matvec=lambda x: A_ilu.solve(x),
+                                                                    rmatvec=lambda x: A_ilu.solve(x, 'T'))
+                id_LO = linalg.aslinearoperator(sp_sparse.identity(A.get_shape()[0]))
+            elif iprecon_type == 'no':
+                iprecon_LO = None
+                id_LO = None
+            else:
+                raise ValueError('not a valid inner preconditioner type')
+
+            # solve
+            def solve_jac_velo(dr_u, dr_v):
+                def qmr_counter(xk):
+                    qmr_counter.count += 1
+                    # if qmr_counter.count % 10 == 0:
+                    #     res = np.linalg.norm(A@xk - dr_uv[~mask])
+                    #     print(f'NavierStokes inner QMR: {qmr_counter.count}\t{res}')
+                qmr_counter.count = 0
+                dr_uv = np.hstack((dr_u, dr_v))
+                duv = np.zeros(self.N*2)
+                duv[mask] = dr_uv[mask]  # apply DIRICHLET condition
+                dr_uv[~mask] -= Jac_velo[~mask, :][:, mask] @ dr_uv[mask]
+                duv[~mask], info = linalg.qmr(A, dr_uv[~mask],
+                                              tol=0, atol=atol,
+                                              M1=iprecon_LO,
+                                              M2=id_LO,
+                                              callback=qmr_counter)
+                if info != 0:
+                    raise RuntimeError(f'NavierStokes QMR: Failed to converge in {info} iterations')
+                # else:
+                #     res = np.linalg.norm(A@duv[~mask] - dr_uv[~mask], ord=np.inf)
+                #     print(f'NavierStokes inner QMR: Converged in {qmr_counter.count} iterations with max-norm {res}')
+                return np.split(duv, 2)
+        else:
+            raise ValueError('not a valid solver type')
 
         # == solve for pressure ==
         # RHS
         b_shur_u, b_shur_v = solve_jac_velo(d_residuals['u'], d_residuals['v'])
         b_shur = -(self.G_x @ b_shur_u + self.G_y @ b_shur_v)
-        b_shur[self.mask_bound + self.mask_dir_p] = 0
+        b_shur[self.mask_bound] = 0  # apply NEUMANN pressure conditions
+        b_shur[self.mask_dir_p] = 0  # apply DIRICHLET pressure conditions
         b_shur += d_residuals['pressure']
 
         # LHS
@@ -193,8 +256,8 @@ class NavierStokes(om.ImplicitComponent):
             return f
         shur_LO = linalg.LinearOperator((self.N,)*2, shur_mv)
 
-        # mass precon
-        def precon_mv(c):
+        # preconditioner
+        def precon_mv(c):  # mass precon
             z = c/self.M.diagonal()
             z[self.mask_dir_p] = c[self.mask_dir_p]
             return z
@@ -220,10 +283,10 @@ class NavierStokes(om.ImplicitComponent):
         # == solve for velocities ==
         # RHS
         b_u = -self.G_x @ d_outputs['pressure']
-        b_u[self.mask_bound] = 0
-        b_u += d_residuals['u']
         b_v = -self.G_y @ d_outputs['pressure']
-        b_v[self.mask_bound] = 0
+        b_u[self.mask_bound] = 0  # apply DIRICHLET velocity condition
+        b_v[self.mask_bound] = 0  # ...
+        b_u += d_residuals['u']
         b_v += d_residuals['v']
 
         d_outputs['u'], d_outputs['v'] = solve_jac_velo(b_u, b_v)

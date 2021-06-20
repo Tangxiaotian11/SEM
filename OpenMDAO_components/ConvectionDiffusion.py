@@ -1,9 +1,10 @@
 import numpy as np
-import SEM
 import scipy.sparse as sp_sparse
 import scipy.sparse.linalg as linalg
 import sparse  # this package is exclusively used for three dimensional sparse matrices, i.e. the convection matrices
+import SEM
 import openmdao.api as om
+import time
 
 
 class ConvectionDiffusion(om.ImplicitComponent):
@@ -20,22 +21,25 @@ class ConvectionDiffusion(om.ImplicitComponent):
 
     def initialize(self):
         # declare parameters
-        self.options.declare('L_x', types=float, desc='length in x direction')
-        self.options.declare('L_y', types=float, desc='length in y direction')
-        self.options.declare('Pe', types=float, default=1., desc='PECLET number')
+        self.options.declare('L_x', types=(float, int), desc='length in x direction')
+        self.options.declare('L_y', types=(float, int), desc='length in y direction')
+        self.options.declare('Pe', types=(float, int), default=1., desc='PECLET number')
         self.options.declare('P', types=int, desc='polynomial order')
         self.options.declare('N_ex', types=int, desc='num of elements in x direction')
         self.options.declare('N_ey', types=int, desc='num of elements in y direction')
         self.options.declare('points', types=np.ndarray, desc='points as global vectors [x, y]')
-        self.options.declare('T_W', types=float, default=None, desc='T at x=0')
-        self.options.declare('T_E', types=float, default=None, desc='T at x=L_x')
-        self.options.declare('T_S', types=float, default=None, desc='T at y=0')
-        self.options.declare('T_N', types=float, default=None, desc='T at y=L_y')
-        self.options.declare('dT_W', types=float, default=None, desc='normal derivative of T at x=0')
-        self.options.declare('dT_E', types=float, default=None, desc='normal derivative of T at x=L_x')
-        self.options.declare('dT_S', types=float, default=None, desc='normal derivative of T at y=0')
-        self.options.declare('dT_N', types=float, default=None, desc='normal derivative of T at y=L_y')
-        self.options.declare('mtol', types=float, default=1.e-7, desc='tolerance on mean square residual')
+        self.options.declare('T_W', types=(float, int), default=None, desc='T at x=0')
+        self.options.declare('T_E', types=(float, int), default=None, desc='T at x=L_x')
+        self.options.declare('T_S', types=(float, int), default=None, desc='T at y=0')
+        self.options.declare('T_N', types=(float, int), default=None, desc='T at y=L_y')
+        self.options.declare('dT_W', types=(float, int), default=None, desc='normal derivative of T at x=0')
+        self.options.declare('dT_E', types=(float, int), default=None, desc='normal derivative of T at x=L_x')
+        self.options.declare('dT_S', types=(float, int), default=None, desc='normal derivative of T at y=0')
+        self.options.declare('dT_N', types=(float, int), default=None, desc='normal derivative of T at y=L_y')
+        self.options.declare('mtol', types=(float, int), default=1e-7, desc='tolerance on mean square residual')
+        self.options.declare('precon_type', types=str, default='jac', desc='preconditioner: no/ilu/jac/cg')
+        self.options.declare('drop_tol', types=(float, int), default=1e-3, desc='ILU drop tolerance')
+        self.options.declare('fill_factor', types=(float, int), default=2, desc='ILU fill factor')
 
     def setup(self):
         # load parameters
@@ -119,6 +123,7 @@ class ConvectionDiffusion(om.ImplicitComponent):
             raise ValueError('only forward mode implemented')
 
         atol = self.options['mtol'] * np.sqrt(self.N)
+        precon_type = self.options['precon_type']
 
         # LHS
         def jac_mv(dT):
@@ -127,12 +132,39 @@ class ConvectionDiffusion(om.ImplicitComponent):
             return dr_T
         jac_LO = linalg.LinearOperator((self.N,)*2, jac_mv)
 
-        # JACOBI precon
-        def precon_mv(c):
-            z = c/self.Sys.diagonal()
-            z[self.mask_dir] = c[self.mask_dir]
-            return z
-        precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
+        # preconditioners
+        if precon_type == 'jac':  # JACOBI
+            def precon_mv(c):
+                z = c/self.Sys.diagonal()
+                z[self.mask_dir] = c[self.mask_dir]
+                return z
+            precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
+        elif precon_type == 'cg':  # pure diffusion solved with CG
+            def precon_mv(c):
+                z = np.zeros(self.N)
+                z[self.mask_dir] = c[self.mask_dir]
+                c[~self.mask_dir] -= self.K[~self.mask_dir, :][:, self.mask_dir] @ c[self.mask_dir]
+                z[~self.mask_dir], info = linalg.cg(self.K[~self.mask_dir, :][:, ~self.mask_dir],
+                                                    c[~self.mask_dir], atol=1e-6, tol=0)
+                if info != 0:
+                    raise RuntimeError(f'ConvectionDiffusion precon CG: Failed to converge in {info} iterations')
+                return z
+            precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
+        elif precon_type == 'ilu':
+            print('ConvectionDiffusion precon ILU: Started')
+            tStart = time.perf_counter()
+            Jac = self.Sys.copy().tolil()
+            Jac[self.mask_dir, :] = 0
+            Jac[self.mask_dir, self.mask_dir] = 1
+            Jac = Jac.tocsc()
+            Jac_ilu = linalg.spilu(Jac, drop_tol=self.options['drop_tol'], fill_factor=self.options['fill_factor'])
+            print(f'ConvectionDiffusion precon ILU: Succeeded in {time.perf_counter()-tStart:0.2f}sec '
+                  f'with fill factor {Jac_ilu.nnz/self.Sys.nnz:0.1f}')
+            precon_LO = linalg.LinearOperator((self.N,)*2, Jac_ilu.solve)
+        elif precon_type == 'no':
+            precon_LO = None
+        else:
+            raise ValueError('not a valid preconditioner type')
 
         # solve
         def gmres_counter(res):

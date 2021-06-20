@@ -20,18 +20,18 @@ Possible reference solutions from MARKATOS-PERICLEOUS (doi.org/10.1016/0017-9310
 """
 
 # input
-L_x = 1.      # length in x direction
-L_y = 1.      # length in y direction
-Re = 1.       # REYNOLDS number
-Ra = 1.e4     # RAYLEIGH number
-Pr = 0.71     # PRANDTL number
-P = 4         # polynomial order
-N_ex = 16     # num of elements in x direction
-N_ey = 16     # num of elements in y direction
-mtol = 1.e-4  # tolerance on mean square residual
+L_x = 1      # length in x direction
+L_y = 1      # length in y direction
+Re = 1       # REYNOLDS number
+Ra = 1e3     # RAYLEIGH number
+Pr = 0.71    # PRANDTL number
+P = 4        # polynomial order
+N_ex = 8     # num of elements in x direction
+N_ey = 8     # num of elements in y direction
+mtol = 1e-4  # tolerance on mean square residual
 
 N = (N_ex*P+1)*(N_ey*P+1)
-tol = 1.e-4*np.sqrt(N)
+tol = mtol*np.sqrt(N)
 
 # grid
 points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
@@ -48,9 +48,11 @@ T[np.isclose(points[0], L_x)] = -0.5
 prob = om.Problem()
 model = prob.model
 model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion(L_x=L_x, L_y=L_y, Pe=Re*Pr, T_W=0.5, T_E=-0.5,
-                                                               P=P, N_ex=N_ex, N_ey=N_ey, points=points))
+                                                               P=P, N_ex=N_ex, N_ey=N_ey, points=points,
+                                                               precon_type='ilu'))
 model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
-                                                 P=P, N_ex=N_ex, N_ey=N_ey, points=points))
+                                                 P=P, N_ex=N_ex, N_ey=N_ey, points=points,
+                                                 solver_type='qmr', iprecon_type='ilu', fill_factor=3, drop_tol=1e-5))
 model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 model.connect('ConvectionDiffusion.T', 'NavierStokes.T')

@@ -20,8 +20,8 @@ Possible reference solutions from GHIA (doi.org/10.1016/0021-9991(82)90058-4).
 L_x = 1     # length in x direction
 L_y = 1     # length in y direction
 P = 4       # polynomial order
-N_ex = 16    # num of elements in x direction
-N_ey = 16    # num of elements in y direction
+N_ex = 16   # num of elements in x direction
+N_ey = 16   # num of elements in y direction
 u_lid = 1   # lid velocity
 
 # grid
