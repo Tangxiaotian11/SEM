@@ -36,7 +36,7 @@ class NavierStokes(om.ImplicitComponent):
         self.options.declare('u_S', types=(float, int), default=0, desc='tangential velocity at y=0')
         self.options.declare('v_E', types=(float, int), default=0, desc='tangential velocity at x=0')
         self.options.declare('v_W', types=(float, int), default=0, desc='tangential velocity at x=L_x')
-        self.options.declare('mtol', types=(float, int), default=1e-7, desc='tolerance on mean square residual')
+        self.options.declare('mtol', types=(float, int), default=1e-7, desc='tolerance on root mean square residual')
         self.options.declare('solver_type', types=str, default='lu', desc='solver: lu/qmr')
         self.options.declare('iprecon_type', types=str, default='jac', desc='inner preconditioner (qmr): jac/ilu/no')
         self.options.declare('drop_tol', types=(float, int), default=1e-3, desc='ILU drop tolerance')

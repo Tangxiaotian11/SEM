@@ -125,10 +125,10 @@ def assemble(A_e: np.ndarray):
 
     if A_e.ndim == 4:
         (m, n, i, j) = np.nonzero(A_e)
-        coords = global_index(P, N_ex, N_ey, m, n, i, j)
+        coords = np.vstack((global_index(P, N_ex, N_ey, m, n, i, j), np.zeros(m.size)))
         data = A_e[m, n, i, j]
-        A = sp_sparse.coo_matrix((data, coords), shape=((P*N_ex+1)*(P*N_ey+1)))
-        A = A.toarray()
+        A = sp_sparse.coo_matrix((data, coords), shape=((P*N_ex+1)*(P*N_ey+1),1))
+        A = A.toarray()[:, 0]
     if A_e.ndim == 6:
         (m, n, i, j, k, l) = np.nonzero(A_e)
         coords = np.vstack((global_index(P, N_ex, N_ey, m, n, i, j),
@@ -226,7 +226,7 @@ def global_gradient_matrices(P: int, N_ex: int, N_ey: int, dx: float, dy: float)
 def global_convection_matrices(P: int, N_ex: int, N_ey: int, dx: float, dy: float) \
         -> typing.Tuple[sparse.COO, sparse.COO]:
     """
-    Returns global gradient matrices in Sparse-COO format.\n
+    Returns global convection matrices in Sparse-COO format.\n
     To return (C_x @ u) in SciPy-CSR format perform 'sparse.tensordot(C_x,u,(2,0),return_type=sparse.COO).tocsr()'.\n
     To return (u @ C_x) in SciPy-CSR format perform 'sparse.tensordot(C_x,u,(1,0),return_type=sparse.COO).tocsr()'.\n
     :param P: polynomial order

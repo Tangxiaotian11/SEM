@@ -21,7 +21,7 @@ Re = 4e2     # REYNOLDS number
 P = 4        # polynomial order
 N_ex = 8    # num of elements in x direction
 N_ey = 8    # num of elements in y direction
-mtol = 1e-4  # tolerance on mean square residual
+mtol = 1e-4  # tolerance on root mean square residual
 
 N = (N_ex*P+1)*(N_ey*P+1)
 tol = mtol*np.sqrt(N)

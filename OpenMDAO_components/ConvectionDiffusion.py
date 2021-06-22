@@ -36,7 +36,7 @@ class ConvectionDiffusion(om.ImplicitComponent):
         self.options.declare('dT_E', types=(float, int), default=None, desc='normal derivative of T at x=L_x')
         self.options.declare('dT_S', types=(float, int), default=None, desc='normal derivative of T at y=0')
         self.options.declare('dT_N', types=(float, int), default=None, desc='normal derivative of T at y=L_y')
-        self.options.declare('mtol', types=(float, int), default=1e-7, desc='tolerance on mean square residual')
+        self.options.declare('mtol', types=(float, int), default=1e-7, desc='tolerance on root mean square residual')
         self.options.declare('precon_type', types=str, default='jac', desc='preconditioner: no/ilu/jac/cg')
         self.options.declare('drop_tol', types=(float, int), default=1e-3, desc='ILU drop tolerance')
         self.options.declare('fill_factor', types=(float, int), default=2, desc='ILU fill factor')

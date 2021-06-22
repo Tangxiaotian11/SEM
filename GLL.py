@@ -103,6 +103,12 @@ def standard_convection_matrix(P: int):
 
 
 def standard_evaluation_matrix(P: int, xi: np.ndarray):
+    """
+    Returns standard evaluation matrix Sˢᵢⱼ=ℓⱼ(xi[i]).\n
+    :param P: polynomial order
+    :param xi: evaluation nodes
+    :return: Sˢᵢⱼ[i,j]
+    """
     nodes = standard_nodes(P)[0]
     S_s = np.zeros((xi.size, P+1))
     for j in range(P+1):
