@@ -107,6 +107,7 @@ class ConvectionDiffusion(om.ImplicitComponent):
         T = outputs['T']
 
         # right-hand-side multiplication of T, i.e. Pe*(C_x @ T)
+        self.Jac_T_T = self.Sys
         self.Jac_T_u = self.Pe * sparse.tensordot(self.C_x, T, (2, 0), return_type=sparse.COO).tocsr()
         self.Jac_T_v = self.Pe * sparse.tensordot(self.C_y, T, (2, 0), return_type=sparse.COO).tocsr()
 
@@ -114,9 +115,11 @@ class ConvectionDiffusion(om.ImplicitComponent):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        d_residuals['T'] = self.Jac_T_u @ d_inputs['u'] + self.Jac_T_v @ d_inputs['v']
-        d_residuals['T'][self.mask_dir] = 0  # apply DIRICHLET conditions
-        d_residuals['T'] *= 5.e-1
+        if d_outputs._names.__len__() == 0:  # if called by self-solver, do not modify rhs
+            return
+
+        d_residuals['T'] = self.Jac_T_T @ d_outputs['T'] + self.Jac_T_u @ d_inputs['u'] + self.Jac_T_v @ d_inputs['v']
+        d_residuals['T'][self.mask_dir] = d_outputs['T'][self.mask_dir]  # apply DIRICHLET conditions
 
     def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':
@@ -127,57 +130,36 @@ class ConvectionDiffusion(om.ImplicitComponent):
 
         # LHS
         def jac_mv(dT):
+            jac_mv.fCount += 1
             dr_T = self.Sys @ dT
             dr_T[self.mask_dir] = dT[self.mask_dir]
             return dr_T
+        jac_mv.fCount = 0
         jac_LO = linalg.LinearOperator((self.N,)*2, jac_mv)
 
-        # preconditioners
-        if precon_type == 'jac':  # JACOBI
-            def precon_mv(c):
-                z = c/self.Sys.diagonal()
-                z[self.mask_dir] = c[self.mask_dir]
-                return z
-            precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
-        elif precon_type == 'cg':  # pure diffusion solved with CG
-            def precon_mv(c):
-                z = np.zeros(self.N)
-                z[self.mask_dir] = c[self.mask_dir]
-                c[~self.mask_dir] -= self.K[~self.mask_dir, :][:, self.mask_dir] @ c[self.mask_dir]
-                z[~self.mask_dir], info = linalg.cg(self.K[~self.mask_dir, :][:, ~self.mask_dir],
-                                                    c[~self.mask_dir], atol=atol*10, tol=0)
-                if info != 0:
-                    raise RuntimeError(f'ConvectionDiffusion precon CG: Failed to converge in {info} iterations')
-                return z
-            precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
-        elif precon_type == 'ilu':
-            print('ConvectionDiffusion precon ILU: Started')
-            tStart = time.perf_counter()
-            Jac = self.Sys.copy().tolil()
-            Jac[self.mask_dir, :] = 0
-            Jac[self.mask_dir, self.mask_dir] = 1
-            Jac = Jac.tocsc()
-            Jac_ilu = linalg.spilu(Jac, drop_tol=self.options['drop_tol'], fill_factor=self.options['fill_factor'])
-            print(f'ConvectionDiffusion precon ILU: Succeeded in {time.perf_counter()-tStart:0.2f}sec '
-                  f'with fill factor {Jac_ilu.nnz/self.Sys.nnz:0.1f}')
-            precon_LO = linalg.LinearOperator((self.N,)*2, Jac_ilu.solve)
-        elif precon_type == 'no':
-            precon_LO = None
-        else:
-            raise ValueError('not a valid preconditioner type')
+        # precon
+        def precon_mv(c):
+            z = np.zeros(self.N)
+            z[self.mask_dir] = c[self.mask_dir]
+            c[~self.mask_dir] -= self.K[~self.mask_dir, :][:, self.mask_dir] @ c[self.mask_dir]
+            z[~self.mask_dir], info = linalg.cg(self.K[~self.mask_dir, :][:, ~self.mask_dir],
+                                                c[~self.mask_dir], atol=atol, tol=0)
+            if info != 0:
+                raise RuntimeError(f'ConvectionDiffusion precon CG: Failed to converge in {info} iterations')
+            return z
+        precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
 
         # solve
-        def gmres_counter(res):
-            gmres_counter.count += 1
-            if gmres_counter.count % 10 == 0:
-                print(f'ConvectionDiffusion GMRES: {gmres_counter.count}\t{res}')
-        gmres_counter.count = 0
+        def print_res(xk):
+            print_res.iterCount += 1
+            res = np.linalg.norm(jac_LO.matvec(xk) - d_residuals['T'])
+            print(f'ConvectionDiffusion LGMRES: {print_res.iterCount}\t{res}')
+        print_res.iterCount = 0
 
-        d_outputs['T'], info = linalg.gmres(A=jac_LO, b=d_residuals['T'], M=precon_LO, x0=d_outputs['T'],
-                                            atol=atol, tol=0, restart=np.inf,
-                                            callback=gmres_counter, callback_type='pr_norm')
+        d_outputs['T'], info = linalg.lgmres(A=jac_LO, b=d_residuals['T'], M=precon_LO, x0=d_outputs['T'],
+                                             atol=atol, tol=0, inner_m=int(self.N*0.1), callback=print_res)
         if info != 0:
-            raise RuntimeError(f'ConvectionDiffusion GMRES: Failed to converge in {info} iterations')
+            raise RuntimeError(f'ConvectionDiffusion LGMRES: Failed to converge in {info} iterations')
         else:
             res = np.linalg.norm(jac_LO.matvec(d_outputs['T']) - d_residuals['T'], ord=np.inf)
-            print(f'ConvectionDiffusion GMRES: Converged in {gmres_counter.count} iterations with max-norm {res}')
+            print(f'ConvectionDiffusion LGMRES: Converged in {jac_mv.fCount} evaluations with max-norm {res}')

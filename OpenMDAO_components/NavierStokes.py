@@ -38,7 +38,7 @@ class NavierStokes(om.ImplicitComponent):
         self.options.declare('v_W', types=(float, int), default=0, desc='tangential velocity at x=L_x')
         self.options.declare('mtol', types=(float, int), default=1e-7, desc='tolerance on root mean square residual')
         self.options.declare('solver_type', types=str, default='lu', desc='solver: lu/qmr')
-        self.options.declare('iprecon_type', types=str, default='jac', desc='inner preconditioner (qmr): jac/ilu/no')
+        self.options.declare('iprecon_type', types=str, default='ilu', desc='inner preconditioner (qmr): jac/ilu/no')
         self.options.declare('drop_tol', types=(float, int), default=1e-3, desc='ILU drop tolerance')
         self.options.declare('fill_factor', types=(float, int), default=2, desc='ILU fill factor')
 
@@ -143,9 +143,20 @@ class NavierStokes(om.ImplicitComponent):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        d_residuals['v'] = - self.Gr_over_Re * self.M @ d_inputs['T']
-        d_residuals['v'][self.mask_bound] = 0  # apply DIRICHLET conditions
-        d_residuals['v'] *= 5.e-1
+        if d_outputs._names.__len__() == 0:  # if called by self-solver, do not modify rhs
+            return
+
+        d_residuals['u'] = self.Jac_u_u @ d_outputs['u'] + self.Jac_u_v @ d_outputs['v'] \
+                         + self.G_x @ d_outputs['pressure']
+        d_residuals['v'] = self.Jac_v_u @ d_outputs['u'] + self.Jac_v_v @ d_outputs['v'] \
+                         + self.G_y @ d_outputs['pressure'] - self.Gr_over_Re * self.M @ d_inputs['T']
+        d_residuals['pressure'] = self.G_x @ d_outputs['u'] + self.G_y @ d_outputs['v']
+
+        # apply DIRICHLET and artificial NEUMANN pressure conditions
+        d_residuals['u'][self.mask_bound] = d_outputs['u'][self.mask_bound]
+        d_residuals['v'][self.mask_bound] = d_outputs['v'][self.mask_bound]
+        d_residuals['pressure'][self.mask_bound] = self.K[self.mask_bound, :] @ d_outputs['pressure']
+        d_residuals['pressure'][self.mask_dir_p] = d_outputs['pressure'][self.mask_dir_p]
 
     def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':
@@ -181,13 +192,7 @@ class NavierStokes(om.ImplicitComponent):
             A = Jac_velo[~mask, :][:, ~mask]  # principal submatrix
 
             # preconditioners
-            if iprecon_type == 'jac':  # JACOBI
-                def iprecon_mv(c):
-                    z = c/A.diagonal()
-                    return z
-                iprecon_LO = linalg.LinearOperator(A.get_shape(), matvec=iprecon_mv, rmatvec=iprecon_mv)
-                id_LO = linalg.aslinearoperator(sp_sparse.identity(A.get_shape()[0]))
-            elif iprecon_type == 'ilu':  # ILU
+            if iprecon_type == 'ilu':  # ILU
                 print('NavierStokes inner QMR precon ILU: Started')
                 tStart = time.perf_counter()
                 A_ilu = linalg.spilu(A.tocsc(),
@@ -238,14 +243,15 @@ class NavierStokes(om.ImplicitComponent):
 
         # == solve for pressure ==
         # RHS
-        b_shur_u, b_shur_v = solve_jac_velo(d_residuals['u'], d_residuals['v'])
-        b_shur = -(self.G_x @ b_shur_u + self.G_y @ b_shur_v)
-        b_shur[self.mask_bound] = 0  # apply NEUMANN pressure conditions
-        b_shur[self.mask_dir_p] = 0  # apply DIRICHLET pressure conditions
-        b_shur += d_residuals['pressure']
+        b_schur_u, b_schur_v = solve_jac_velo(d_residuals['u'], d_residuals['v'])
+        b_schur = -(self.G_x @ b_schur_u + self.G_y @ b_schur_v)
+        b_schur[self.mask_bound] = 0  # apply NEUMANN pressure conditions
+        b_schur[self.mask_dir_p] = 0  # apply DIRICHLET pressure conditions
+        b_schur += d_residuals['pressure']
 
         # LHS
-        def shur_mv(dp):
+        def schur_mv(dp):
+            schur_mv.fCount += 1
             # apply gradient
             f_x = self.G_x @ dp
             f_y = self.G_y @ dp
@@ -260,7 +266,8 @@ class NavierStokes(om.ImplicitComponent):
             # apply DIRICHLET pressure condition
             f[self.mask_dir_p] = dp[self.mask_dir_p]
             return f
-        shur_LO = linalg.LinearOperator((self.N,)*2, shur_mv)
+        schur_mv.fCount = 0
+        schur_LO = linalg.LinearOperator((self.N,)*2, schur_mv)
 
         # preconditioner
         def precon_mv(c):  # mass precon
@@ -270,21 +277,19 @@ class NavierStokes(om.ImplicitComponent):
         precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv)
 
         # solve
-        def gmres_counter(res):
-            gmres_counter.count += 1
-            if gmres_counter.count % 10 == 0:
-                print(f'NavierStokes GMRES: {gmres_counter.count}\t{res}')
-        gmres_counter.count = 0
+        def print_res(xk):
+            print_res.iterCount += 1
+            res = np.linalg.norm(schur_LO.matvec(xk) - b_schur)
+            print(f'NavierStokes LGMRES: {print_res.iterCount}\t{res}')
+        print_res.iterCount = 0
 
-        d_outputs['pressure'], info = linalg.gmres(A=shur_LO, b=b_shur, M=precon_LO, x0=d_outputs['pressure'],
-                                                   atol=atol, tol=0,
-                                                   restart=np.infty,
-                                                   callback=gmres_counter, callback_type='pr_norm')
+        d_outputs['pressure'], info = linalg.lgmres(A=schur_LO, b=b_schur, M=precon_LO, x0=d_outputs['pressure'],
+                                                    atol=atol, tol=0, inner_m=int(self.N*0.2), callback=print_res)
         if info != 0:
-            raise RuntimeError(f'NavierStokes GMRES: Failed to converge in {info} iterations')
+            raise RuntimeError(f'NavierStokes LGMRES: Failed to converge in {info} iterations')
         else:
-            res = np.linalg.norm(shur_LO.matvec(d_outputs['pressure']) - b_shur, ord=np.inf)
-            print(f'NavierStokes GMRES: Converged in {gmres_counter.count} iterations with max-norm {res}')
+            res = np.linalg.norm(schur_LO.matvec(d_outputs['pressure']) - b_schur, ord=np.inf)
+            print(f'NavierStokes LGMRES: Converged in {schur_mv.fCount} evaluations with max-norm {res}')
 
         # == solve for velocities ==
         # RHS

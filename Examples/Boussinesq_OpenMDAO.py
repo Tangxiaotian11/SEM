@@ -22,16 +22,16 @@ Possible reference solutions from MARKATOS-PERICLEOUS (doi.org/10.1016/0017-9310
 # input
 L_x = 1      # length in x direction
 L_y = 1      # length in y direction
-Re = 1       # REYNOLDS number
-Ra = 1e3     # RAYLEIGH number
+Re = 100     # REYNOLDS number
+Ra = 1e4     # RAYLEIGH number
 Pr = 0.71    # PRANDTL number
 P = 4        # polynomial order
 N_ex = 8     # num of elements in x direction
 N_ey = 8     # num of elements in y direction
-mtol = 1e-4  # tolerance on root mean square residual
+mtol = 1e-3  # tolerance on root mean square residual
 
 N = (N_ex*P+1)*(N_ey*P+1)
-tol = mtol*np.sqrt(N)
+tol = mtol*np.sqrt(N*2)
 
 # grid
 points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
@@ -49,16 +49,17 @@ prob = om.Problem()
 model = prob.model
 model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion(L_x=L_x, L_y=L_y, Pe=Re*Pr, T_W=0.5, T_E=-0.5,
                                                                P=P, N_ex=N_ex, N_ey=N_ey, points=points,
-                                                               precon_type='ilu'))
+                                                               precon_type='cg'))
 model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
                                                  P=P, N_ex=N_ex, N_ey=N_ey, points=points,
-                                                 solver_type='qmr', iprecon_type='ilu', fill_factor=3, drop_tol=1e-5))
+                                                 solver_type='lu'))
 model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
 model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=200, atol=tol, rtol=0)
 model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=5, rho=0.8, c=0.2)
-model.linear_solver = om.LinearRunOnce()
+model.linear_solver = om.ScipyKrylov(iprint=2, atol=tol, rtol=0, maxiter=N, restart=N)
+model.linear_solver.precon = om.LinearBlockJac(iprint=-1, maxiter=1)
 prob.setup()
 # om.n2(prob) # prints N2-diagram
 
