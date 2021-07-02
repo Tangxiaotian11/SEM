@@ -201,6 +201,12 @@ class NavierStokes(om.ImplicitComponent):
             elif iprecon_type == 'no':
                 iprecon_LO = None
                 id_LO = None
+            elif iprecon_type == 'cg':
+                B_lu = linalg.splu(self.K[~self.mask_bound, :][:, ~self.mask_bound].tocsc())  # TODO make cg
+                def iprecon_mv(c):
+                    return np.hstack(B_lu.solve(np.array(np.split(c, 2)).T).T)  # TODO make cg
+                iprecon_LO = linalg.LinearOperator(A.get_shape(), matvec=iprecon_mv, rmatvec=iprecon_mv)
+                id_LO = linalg.aslinearoperator(sp_sparse.identity(A.get_shape()[0]))
             else:
                 raise ValueError('not a valid inner preconditioner type')
 
@@ -217,7 +223,7 @@ class NavierStokes(om.ImplicitComponent):
                 duv[mask] = dr_uv[mask]  # apply DIRICHLET condition
                 dr_uv[~mask] -= Jac_velo[~mask, :][:, mask] @ dr_uv[mask]
                 duv[~mask], info = linalg.qmr(A, dr_uv[~mask],
-                                              tol=0, atol=atol,
+                                              tol=0, atol=atol*10,
                                               M1=iprecon_LO,
                                               M2=id_LO,
                                               callback=qmr_counter)
