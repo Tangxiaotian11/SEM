@@ -47,7 +47,7 @@ x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 51), np.linspace(0, L_y, 51), i
 u_plot = SEM.eval_interpolation(u_e, points_e, (x_plot, y_plot))
 exact_plot = exact(x_plot, y_plot)
 fig = plt.figure()
-ax = fig.gca(projection='3d')
+ax = fig.add_subplot(projection='3d')
 for m in range(u_e.shape[0]):
     for n in range(u_e.shape[1]):
         ax.scatter(points_e[0, m, n, :, :],

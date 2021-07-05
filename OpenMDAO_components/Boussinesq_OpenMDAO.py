@@ -1,7 +1,7 @@
 import numpy as np
 import SEM
-from OpenMDAO_components.NavierStokes import NavierStokes
-from OpenMDAO_components.ConvectionDiffusion import ConvectionDiffusion
+from OpenMDAO_components.NavierStokes_Component import NavierStokes_Component
+from OpenMDAO_components.ConvectionDiffusion_Component import ConvectionDiffusion_Component
 import openmdao.api as om
 import matplotlib.pyplot as plt
 
@@ -22,16 +22,18 @@ Possible reference solutions from MARKATOS-PERICLEOUS (doi.org/10.1016/0017-9310
 # input
 L_x = 1      # length in x direction
 L_y = 1      # length in y direction
-Re = 100     # REYNOLDS number
+Re = 1e2     # REYNOLDS number
 Ra = 1e4     # RAYLEIGH number
 Pr = 0.71    # PRANDTL number
 P = 4        # polynomial order
 N_ex = 8     # num of elements in x direction
 N_ey = 8     # num of elements in y direction
-mtol = 1e-3  # tolerance on root mean square residual
+mtol = 1e-5  # tolerance on root mean square residual for GMRES
+mtol_newton = 1e-3  # tolerance on root mean square residual for NEWTON
 
 N = (N_ex*P+1)*(N_ey*P+1)
-tol = mtol*np.sqrt(N*2)
+atol = mtol*np.sqrt(N*2)
+atol_newton = mtol_newton*np.sqrt(N*2)
 
 # grid
 points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
@@ -47,19 +49,18 @@ T[np.isclose(points[0], L_x)] = -0.5
 # initialize OpenMDAO solver
 prob = om.Problem()
 model = prob.model
-model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion(L_x=L_x, L_y=L_y, Pe=Re*Pr, T_W=0.5, T_E=-0.5,
-                                                               P=P, N_ex=N_ex, N_ey=N_ey, points=points,
-                                                               precon_type='cg'))
-model.add_subsystem('NavierStokes', NavierStokes(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
-                                                 P=P, N_ex=N_ex, N_ey=N_ey, points=points,
-                                                 solver_type='lu'))
+model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(L_x=L_x, L_y=L_y, Pe=Re*Pr, T_W=0.5, T_E=-0.5,
+                                                                         P=P, N_ex=N_ex, N_ey=N_ey, mtol=1e-7))
+model.add_subsystem('NavierStokes', NavierStokes_Component(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
+                                                           P=P, N_ex=N_ex, N_ey=N_ey, mtol=1e-7))
 model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
-model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=200, atol=tol, rtol=0)
-model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=5, rho=0.8, c=0.2)
-model.linear_solver = om.ScipyKrylov(iprint=2, atol=tol, rtol=0, maxiter=N, restart=N)
+model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=200, atol=atol_newton, rtol=0)
+model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=10, rho=0.8, c=0.2)
+model.linear_solver = om.ScipyKrylov(iprint=2, atol=atol, rtol=0, restart=20)
 model.linear_solver.precon = om.LinearBlockJac(iprint=-1, maxiter=1)
+# model.linear_solver = om.LinearRunOnce()
 prob.setup()
 # om.n2(prob) # prints N2-diagram
 
@@ -87,7 +88,7 @@ ax = fig.gca()
 ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=3)
 CS = ax.contour(x_plot, y_plot, T_plot, levels=11, colors='k', linestyles='solid')
 ax.clabel(CS, inline=True)
-ax.set_title(f"Re={Re:.0e}, Ra={Ra:.0e}, Pr={Pr}, P={P}, N_ex={N_ex}, N_ey={N_ey}, mtol={mtol:.0e}",
+ax.set_title(f"Re={Re:.0e}, Ra={Ra:.0e}, Pr={Pr}, P={P}, N_ex={N_ex}, N_ey={N_ey}, mtol={mtol_newton:.0e}",
              fontsize='small')
 ax.set_xlabel('x')
 ax.set_ylabel('y')
