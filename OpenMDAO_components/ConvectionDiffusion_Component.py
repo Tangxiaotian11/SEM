@@ -26,6 +26,8 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
                                             self.options['T_S'], self.options['T_N'],
                                             self.options['mtol'])
 
+        self.iter_count_solve = 0
+
         # declare variables
         self.add_output('T', val=np.zeros(self.cd.N), desc='T as global vector')
         self.add_input('u', val=np.zeros(self.cd.N), desc='u as global vector')
@@ -52,3 +54,5 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
             raise ValueError('only forward mode implemented')
 
         d_outputs['T'] = self.cd._get_update(d_residuals['T'], dT0=d_outputs['T'])
+
+        self.iter_count_solve += 1

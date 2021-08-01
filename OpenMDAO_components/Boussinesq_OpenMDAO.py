@@ -28,11 +28,12 @@ Pr = 0.71    # PRANDTL number
 P = 4        # polynomial order
 N_ex = 8     # num of elements in x direction
 N_ey = 8     # num of elements in y direction
-mtol = 1e-5  # tolerance on root mean square residual for GMRES
-mtol_newton = 1e-3  # tolerance on root mean square residual for NEWTON
+mtol_internal = 1e-12  # tolerance on root mean square residual for internal solvers
+mtol_gmres = 1e-9  # tolerance on root mean square residual for GMRES
+mtol_newton = 1e-8  # tolerance on root mean square residual for NEWTON
 
 N = (N_ex*P+1)*(N_ey*P+1)
-atol = mtol*np.sqrt(N*2)
+atol_gmres = mtol_gmres*np.sqrt(N*2)
 atol_newton = mtol_newton*np.sqrt(N*2)
 
 # grid
@@ -50,15 +51,15 @@ T[np.isclose(points[0], L_x)] = -0.5
 prob = om.Problem()
 model = prob.model
 model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(L_x=L_x, L_y=L_y, Pe=Re*Pr, T_W=0.5, T_E=-0.5,
-                                                                         P=P, N_ex=N_ex, N_ey=N_ey, mtol=1e-7))
+                                                                         P=P, N_ex=N_ex, N_ey=N_ey, mtol=mtol_internal))
 model.add_subsystem('NavierStokes', NavierStokes_Component(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
-                                                           P=P, N_ex=N_ex, N_ey=N_ey, mtol=1e-7))
+                                                           P=P, N_ex=N_ex, N_ey=N_ey, mtol=mtol_internal))
 model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
-model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, maxiter=200, atol=atol_newton, rtol=0)
+model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=False, maxiter=200, atol=atol_newton, rtol=0)
 model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=10, rho=0.8, c=0.2)
-model.linear_solver = om.ScipyKrylov(iprint=2, atol=atol, rtol=0, restart=20)
+model.linear_solver = om.ScipyKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=20)
 model.linear_solver.precon = om.LinearBlockJac(iprint=-1, maxiter=1)
 # model.linear_solver = om.LinearRunOnce()
 prob.setup()
@@ -72,6 +73,10 @@ prob.run_model()
 u = prob['NavierStokes.u']
 v = prob['NavierStokes.v']
 T = prob['ConvectionDiffusion.T']
+
+print(f"iter NEWTON: {model.nonlinear_solver._iter_count}")
+print(f"iter CD: {model.ConvectionDiffusion.iter_count_solve}")
+print(f"iter NS: {model.NavierStokes.iter_count_solve}")
 
 # scatter for plot
 u_e = SEM.scatter(u, P, N_ex, N_ey)
@@ -92,6 +97,8 @@ ax.set_title(f"Re={Re:.0e}, Ra={Ra:.0e}, Pr={Pr}, P={P}, N_ex={N_ex}, N_ey={N_ey
              fontsize='small')
 ax.set_xlabel('x')
 ax.set_ylabel('y')
+ax.set_xlim([0, 1])
+ax.set_ylim([0, 1])
 plt.show()
 
 # info

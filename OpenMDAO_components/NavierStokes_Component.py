@@ -26,6 +26,8 @@ class NavierStokes_Component(om.ImplicitComponent):
                                      self.options['v_W'], self.options['v_E'], self.options['u_S'], self.options['u_N'],
                                      self.options['mtol'])
 
+        self.iter_count_solve = 0
+
         # declare variables
         self.add_input('T', val=np.zeros(self.ns.N), desc='T as global vector')
         self.add_output('u', val=np.zeros(self.ns.N), desc='u as global vector')
@@ -57,3 +59,5 @@ class NavierStokes_Component(om.ImplicitComponent):
         d_outputs['u'], d_outputs['v'], d_outputs['p'] = \
             self.ns._get_update(d_residuals['u'], d_residuals['v'], d_residuals['p'],
                                 d_outputs['u'], d_outputs['v'], d_outputs['p'])
+
+        self.iter_count_solve += 1

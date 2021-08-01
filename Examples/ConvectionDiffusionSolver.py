@@ -11,6 +11,7 @@ class ConvectionDiffusionSolver:
     def __init__(self, L_x: float, L_y: float, Pe: float, P: int, N_ex: int, N_ey: int,
                  T_W: float = None, T_E: float = None, T_S: float = None, T_N: float = None,
                  mtol=1e-7):
+        # TODO print info flag
         """
         Solves the steady-state convection-diffusion equation for T(x,y) given
         the convection velocities u(x,y) and v(x,y)\n
@@ -187,8 +188,8 @@ if __name__ == "__main__":
     L_x = 1
     L_y = 1
     P = 4
-    N_ex = 4
-    N_ey = 4
+    N_ex = 16
+    N_ey = 16
     Pe = 40
 
     # plotting points
@@ -197,8 +198,8 @@ if __name__ == "__main__":
 
     cd = ConvectionDiffusionSolver(L_x, L_y, Pe, P, N_ex, N_ey, T_E=-0.5, T_W=0.5)
 
-    u = lambda x, y: y-0.5
-    v = lambda x, y: -x+0.5
+    u = lambda x, y: (y-0.5)
+    v = lambda x, y: -(x-0.5)
     T = cd.get_solution(u, v)
 
     # scatter for plot
@@ -210,9 +211,11 @@ if __name__ == "__main__":
     fig = plt.figure(figsize=(L_x*4, L_y*4))
     ax = fig.gca()
     CS = ax.contour(x_plot, y_plot, T_plot, levels=11, colors='k', linestyles='solid')
-    ax.streamplot(x_plot.T, y_plot.T, y_plot.T-0.5, -x_plot.T+0.5, density=1)
+    ax.streamplot(x_plot.T, y_plot.T, u(x_plot, y_plot).T, v(x_plot, y_plot).T, density=1)
     ax.clabel(CS, inline=True)
     ax.set_title(f"P={P}, N_ex={N_ex}, N_ey={N_ey}, mtol={cd._mtol:.0e}", fontsize='small')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
+    ax.set_xlim([0, 1])
+    ax.set_ylim([0, 1])
     plt.show()
