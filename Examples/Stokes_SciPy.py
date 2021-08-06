@@ -1,3 +1,5 @@
+import sys, os
+sys.path.append(os.getcwd() + '/..')
 import numpy as np
 import scipy.sparse.linalg as linalg
 import scipy.sparse as sp_sparse

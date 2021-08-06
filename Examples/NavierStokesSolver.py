@@ -1,3 +1,5 @@
+import sys, os
+sys.path.append(os.getcwd() + '/..')
 import numpy as np
 import scipy.sparse as sp_sparse
 import scipy.sparse.linalg as linalg
@@ -9,8 +11,7 @@ import matplotlib.pyplot as plt
 class NavierStokesSolver:
     def __init__(self, L_x: float, L_y: float, Re: float, Gr: float, P: int, N_ex: int, N_ey: int,
                  v_W: float = 0, v_E: float = 0, u_S: float = 0, u_N: float = 0,
-                 mtol=1e-7, mtol_newton=1e-5):
-        # TODO print info flag
+                 mtol=1e-7, mtol_newton=1e-5, iprint: list[str] = ['NEWTON_suc', 'NEWTON_iter']):
         """
         Solves the steady-state NAVIER-STOKES equation for u(x,y) and v(x,y) given the temperature T(x,y)\n
         Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v] + Gr/Re [0, T] ∀(x,y)∈[0,L_x]×[0,L_y]\n
@@ -35,7 +36,10 @@ class NavierStokesSolver:
         :param u_N: DIRICHLET value
         :param mtol: tolerance on root mean square residuals for JACOBI inversion
         :param mtol_newton: tolerance on root mean square residuals for NEWTON
+        :param iprint: list of infos to print TODO desc
         """
+        self._iprint = iprint
+
         self._Re = Re
         self._Gr = Gr
         if self._Re == 0 and self._Gr != 0:
@@ -81,12 +85,13 @@ class NavierStokesSolver:
         self._mask_bound = ~np.isnan(self._dirichlet_u)
         self._mask_dir_p = ~np.isnan(self._dirichlet_p)
 
-    def _calc_system(self, u, v, T):
+    def _get_residuals(self, u, v, p, T):
         """
-        Precalculates system matrices\n
+        Returns momentum and continuity residuals with precalculated system matrices\n
         :param u: u as global vector
         :param v: v as global vector
-        :param T: T as global vector
+        :param p: p as global vector
+        :return: res_u, res_v, res_cont as global vectors
         """
         # left-hand-side multiplication of convection velocities, i.e. Re*(u @ C_x + v @ C_y)
         Conv = self._Re * (sparse.tensordot(self._C_x, u, (1, 0), return_type=sparse.COO).tocsr()
@@ -95,14 +100,6 @@ class NavierStokesSolver:
         self._Sys = self._K + Conv
         self._Bouyancy = self._Gr_over_Re * self._M @ T
 
-    def _get_residuals(self, u, v, p):
-        """
-        Returns momentum and continuity residuals with precalculated system matrices\n
-        :param u: u as global vector
-        :param v: v as global vector
-        :param p: p as global vector
-        :return: res_u, res_v, res_cont as global vectors
-        """
         res_u = self._Sys @ u + self._G_x @ p
         res_v = self._Sys @ v + self._G_y @ p - self._Bouyancy
         res_cont = self._G_x @ u + self._G_y @ v
@@ -168,7 +165,6 @@ class NavierStokesSolver:
         :return: du, dv, dp as global vectors
         """
         # == Jac_velo solver == # TODO replace with QMR
-        # print('NavierStokes LU: Started')
         tStart = time.perf_counter()
         mask = np.hstack((self._mask_bound,) * 2)
         Jac_velo = sp_sparse.bmat([[self._Jac_u_u, self._Jac_u_v],
@@ -177,8 +173,9 @@ class NavierStokesSolver:
         Jac_velo[mask, mask] = 1  # ...
         Jac_velo = Jac_velo.tocsc()
         Jac_velo_lu = linalg.splu(Jac_velo)
-        # print(f'NavierStokes LU: Succeeded in {time.perf_counter()-tStart:0.2f}sec '
-        #       f'with fill factor {Jac_velo_lu.nnz/Jac_velo.nnz:0.1f}')
+        if 'LU' in self._iprint:
+            print(f'NavierStokes LU: Succeeded in {time.perf_counter()-tStart:0.2f}sec '
+                  f'with fill factor {Jac_velo_lu.nnz/Jac_velo.nnz:0.1f}')
 
         def solve_jac_velo(dres_u, dres_v):
             dres_uv = np.hstack((dres_u, dres_v))
@@ -223,16 +220,18 @@ class NavierStokesSolver:
         # solve
         def print_res(xk):
             print_res.iterCount += 1
-            # res = np.linalg.norm(schur_LO.matvec(xk) - b_schur)
-            # print(f'NavierStokes LGMRES: {print_res.iterCount}\t{res}')
+            if 'LGMRES_iter' in self._iprint:
+                res = np.linalg.norm(schur_LO.matvec(xk) - b_schur)
+                print(f'NavierStokes LGMRES: {print_res.iterCount}\t{res}')
         print_res.iterCount = 0
 
         dp, info = linalg.lgmres(A=schur_LO, b=b_schur, M=precon_LO, x0=dp0,
-                                 atol=self._mtol * np.sqrt(self.N), tol=0,
+                                 atol=self._mtol*np.sqrt(self.N), tol=0,
                                  inner_m=int(self.N*0.3), callback=print_res)
         if info != 0:
             raise RuntimeError(f'NavierStokes LGMRES: Failed to converge in {info} iterations')
-        else:
+
+        if 'LGMRES_suc' in self._iprint:
             res = np.linalg.norm(schur_LO.matvec(dp) - b_schur, ord=np.inf)
             print(f'NavierStokes LGMRES: Converged in {schur_mv.fCount} evaluations with max-norm {res}')
 
@@ -265,13 +264,14 @@ class NavierStokesSolver:
 
         k = 0
         while True:
-            self._calc_system(u, v, T)
-            res_u, res_v, res_cont = self._get_residuals(u, v, p)
+            res_u, res_v, res_cont = self._get_residuals(u, v, p, T)
             norm = np.linalg.norm((res_u, res_v, res_cont), ord=2)
-            print(f'NavierStokes NEWTON: {k}\t{norm}')
+            if 'NEWTON_iter' in self._iprint:
+                print(f'NavierStokes NEWTON: {k}\t{norm}')
             if norm <= self._mtol_newton * np.sqrt(self.N * 3):
-                print(f'NavierStokes NEWTON: Converged in {k} iterations'
-                      f' with max-norm {np.linalg.norm((res_u, res_v, res_cont), ord=np.inf)}')
+                if 'NEWTON_suc' in self._iprint:
+                    print(f'NavierStokes NEWTON: Converged in {k} iterations'
+                          f' with max-norm {np.linalg.norm((res_u, res_v, res_cont), ord=np.inf)}')
                 break
             self._calc_jacobians(u, v)
             du, dv, dp = self._get_update(-res_u, -res_v, -res_cont)  # single NEWTON

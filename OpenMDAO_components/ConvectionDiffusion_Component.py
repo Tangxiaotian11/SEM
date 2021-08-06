@@ -34,8 +34,7 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
         self.add_input('v', val=np.zeros(self.cd.N), desc='v as global vector')
 
     def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
-        self.cd._calc_system(inputs['u'], inputs['v'])
-        residuals['T'] = self.cd._get_residuals(outputs['T'])
+        residuals['T'] = self.cd._get_residuals(outputs['T'], inputs['u'], inputs['v'])
 
     def linearize(self, inputs, outputs, partials, **kwargs):
         self.cd._calc_jacobians(outputs['T'])
@@ -44,10 +43,11 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        if d_outputs._names.__len__() == 0:  # if called by solve_linear, pass
-            return
-
-        d_residuals['T'] = self.cd._get_dresiduals(d_outputs['T'], d_inputs['u'], d_inputs['v'])
+        if d_outputs._names.__len__() == 0:  # if called by precon, only w.r.t. inputs
+            pass
+            # d_residuals['T'] = self.cd._get_dresiduals(np.zeros(self.cd.N), d_inputs['u'], d_inputs['v'])
+        else:
+            d_residuals['T'] = self.cd._get_dresiduals(d_outputs['T'], d_inputs['u'], d_inputs['v'])
 
     def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':

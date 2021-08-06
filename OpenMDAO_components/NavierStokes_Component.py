@@ -35,9 +35,8 @@ class NavierStokes_Component(om.ImplicitComponent):
         self.add_output('p', val=np.zeros(self.ns.N), desc='p as global vector')
 
     def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
-        self.ns._calc_system(outputs['u'], outputs['v'], inputs['T'])
         residuals['u'], residuals['v'], residuals['p'] = \
-            self.ns._get_residuals(outputs['u'], outputs['v'], outputs['p'])
+            self.ns._get_residuals(outputs['u'], outputs['v'], outputs['p'], inputs['T'])
 
     def linearize(self, inputs, outputs, partials, **kwargs):
         self.ns._calc_jacobians(outputs['u'], outputs['v'])
@@ -46,11 +45,14 @@ class NavierStokes_Component(om.ImplicitComponent):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        if d_outputs._names.__len__() == 0:  # if called by solve_linear, do not modify rhs
-            return
-
-        d_residuals['u'], d_residuals['v'], d_residuals['p'] = \
-            self.ns._get_dresiduals(d_outputs['u'], d_outputs['v'], d_outputs['p'], d_inputs['T'])
+        if d_outputs._names.__len__() == 0:  # if called by precon, only w.r.t. inputs
+            pass
+            # zero = np.zeros(self.ns.N)
+            # d_residuals['u'], d_residuals['v'], d_residuals['p'] = \
+            #     self.ns._get_dresiduals(zero, zero, zero, d_inputs['T'])
+        else:
+            d_residuals['u'], d_residuals['v'], d_residuals['p'] = \
+                self.ns._get_dresiduals(d_outputs['u'], d_outputs['v'], d_outputs['p'], d_inputs['T'])
 
     def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':

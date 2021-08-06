@@ -1,3 +1,5 @@
+import sys, os
+sys.path.append(os.getcwd() + '/..')
 import numpy as np
 import scipy.sparse as sp_sparse
 import scipy.sparse.linalg as linalg
@@ -10,8 +12,7 @@ import matplotlib.pyplot as plt
 class ConvectionDiffusionSolver:
     def __init__(self, L_x: float, L_y: float, Pe: float, P: int, N_ex: int, N_ey: int,
                  T_W: float = None, T_E: float = None, T_S: float = None, T_N: float = None,
-                 mtol=1e-7):
-        # TODO print info flag
+                 mtol=1e-7, iprint: list[str] = []):
         """
         Solves the steady-state convection-diffusion equation for T(x,y) given
         the convection velocities u(x,y) and v(x,y)\n
@@ -32,7 +33,10 @@ class ConvectionDiffusionSolver:
         :param T_S: DIRICHLET value or None for homogeneous NEUMANN
         :param T_N: DIRICHLET value or None for homogeneous NEUMANN
         :param mtol: tolerance on root mean square residuals for JACOBI inversion
+        :param iprint: list of infos to print TODO desc
         """
+        self._iprint = iprint
+
         self._Pe = Pe
         self._mtol = mtol
 
@@ -65,23 +69,18 @@ class ConvectionDiffusionSolver:
             self._dirichlet[np.isclose(self.points[1], self._L_y)] = T_N
         self._mask_dir = ~np.isnan(self._dirichlet)
 
-    def _calc_system(self, u, v):
-        """
-        Precalculates system matrices\n
-        :param u: u as global vector
-        :param v: v as global vector
-        """
-        # left-hand-side multiplication of convection velocities, i.e. Pe*(u @ C_x + v @ C_y)
-        Conv = self._Pe * (sparse.tensordot(self._C_x, u, (1, 0), return_type=sparse.COO).tocsr()
-                           + sparse.tensordot(self._C_y, v, (1, 0), return_type=sparse.COO).tocsr())
-        self._Sys = Conv + self._K
-
-    def _get_residuals(self, T):
+    def _get_residuals(self, T, u, v):
         """
         Returns residual with precalculated system matrices\n
         :param T: temperature as global vector
         :return: res as global vector
         """
+        # left-hand-side multiplication of convection velocities, i.e. Pe*(u @ C_x + v @ C_y)
+        Conv = self._Pe * (sparse.tensordot(self._C_x, u, (1, 0), return_type=sparse.COO).tocsr()
+                         + sparse.tensordot(self._C_y, v, (1, 0), return_type=sparse.COO).tocsr())
+        # system matrix
+        self._Sys = Conv + self._K
+
         res = self._Sys @ T
 
         # apply DIRICHLET conditions
@@ -150,14 +149,16 @@ class ConvectionDiffusionSolver:
         def print_res(xk):
             print_res.iterCount += 1
             resk = np.linalg.norm(lhs_LO.matvec(xk) - dres)
-            # print(f'ConvectionDiffusion LGMRES: {print_res.iterCount}\t{resk}')
+            if 'LGMRES_iter' in self._iprint:
+                print(f'ConvectionDiffusion LGMRES: {print_res.iterCount}\t{resk}')
         print_res.iterCount = 0
 
         dT, info = linalg.lgmres(A=lhs_LO, b=dres, M=None, x0=dT0,
                                  atol=atol, tol=0, inner_m=int(self.N*0.1), callback=print_res)
         if info != 0:
             raise RuntimeError(f'ConvectionDiffusion LGMRES: Failed to converge in {info} iterations')
-        else:
+
+        if 'LGMRES_suc' in self._iprint:
             res = np.linalg.norm(lhs_LO.matvec(dT) - dres, ord=np.inf)
             print(f'ConvectionDiffusion LGMRES: Converged in {lhs_mv.fCount} evaluations with max-norm {res}')
 
@@ -176,8 +177,7 @@ class ConvectionDiffusionSolver:
         u = u_func(self.points[0], self.points[1]) if u_func is not None else np.zeros(self.N)
         v = v_func(self.points[0], self.points[1]) if v_func is not None else np.zeros(self.N)
 
-        self._calc_system(u, v)
-        res = self._get_residuals(T0)
+        res = self._get_residuals(T0, u, v)
         dT = self._get_update(-res)  # single NEWTON step because problem is already linear
         return T0 + dT
 
