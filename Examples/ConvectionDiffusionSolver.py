@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 class ConvectionDiffusionSolver:
     def __init__(self, L_x: float, L_y: float, Pe: float, P: int, N_ex: int, N_ey: int,
                  T_W: float = None, T_E: float = None, T_S: float = None, T_N: float = None,
-                 mtol=1e-7, iprint: list[str] = []):
+                 mtol=1e-7, iprint: list = []):
         """
         Solves the steady-state convection-diffusion equation for T(x,y) given
         the convection velocities u(x,y) and v(x,y)\n
@@ -191,12 +191,32 @@ if __name__ == "__main__":
     N_ex = 16
     N_ey = 16
     Pe = 40
+    iprint = []
+    save = False
+
+    for i, arg in enumerate(sys.argv):
+        if arg == '-L_x':
+            P = float(sys.argv[i+1])
+        if arg == '-L_y':
+            P = float(sys.argv[i+1])
+        if arg == '-P':
+            P = int(sys.argv[i+1])
+        if arg == '-Ne_x':
+            Ne_x = int(sys.argv[i+1])
+        if arg == '-Ne_y':
+            Ne_y = int(sys.argv[i+1])
+        if arg == '-Pe':
+            Pe = float(sys.argv[i+1])
+        if arg == '-iprint':
+            iprint = sys.argv[i+1].split(',')
+        if arg == '-save':
+            save = bool(sys.argv[i+1])
 
     # plotting points
     points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
     points_e = SEM.element_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
 
-    cd = ConvectionDiffusionSolver(L_x, L_y, Pe, P, N_ex, N_ey, T_E=-0.5, T_W=0.5)
+    cd = ConvectionDiffusionSolver(L_x, L_y, Pe, P, N_ex, N_ey, T_E=-0.5, T_W=0.5, iprint=iprint)
 
     u = lambda x, y: (y-0.5)
     v = lambda x, y: -(x-0.5)

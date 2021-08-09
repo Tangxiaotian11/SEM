@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 class NavierStokesSolver:
     def __init__(self, L_x: float, L_y: float, Re: float, Gr: float, P: int, N_ex: int, N_ey: int,
                  v_W: float = 0, v_E: float = 0, u_S: float = 0, u_N: float = 0,
-                 mtol=1e-7, mtol_newton=1e-5, iprint: list[str] = ['NEWTON_suc', 'NEWTON_iter']):
+                 mtol=1e-7, mtol_newton=1e-5, iprint: list = ['NEWTON_suc', 'NEWTON_iter']):
         """
         Solves the steady-state NAVIER-STOKES equation for u(x,y) and v(x,y) given the temperature T(x,y)\n
         Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v] + Gr/Re [0, T] ∀(x,y)∈[0,L_x]×[0,L_y]\n
@@ -292,11 +292,31 @@ if __name__ == "__main__":
     P = 4
     N_ex = 16
     N_ey = 16
+    iprint = ['NEWTON_suc', 'NEWTON_iter']
+    save = False
+
+    for i, arg in enumerate(sys.argv):
+        if arg == '-L_x':
+            P = float(sys.argv[i+1])
+        if arg == '-L_y':
+            P = float(sys.argv[i+1])
+        if arg == '-P':
+            P = int(sys.argv[i+1])
+        if arg == '-Ne_x':
+            Ne_x = int(sys.argv[i+1])
+        if arg == '-Ne_y':
+            Ne_y = int(sys.argv[i+1])
+        if arg == '-Re':
+            Re = float(sys.argv[i+1])
+        if arg == '-iprint':
+            iprint = sys.argv[i+1].split(',')
+        if arg == '-save':
+            save = bool(sys.argv[i+1])
 
     # plotting points
     points_e = SEM.element_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
 
-    ns = NavierStokesSolver(L_x, L_y, Re, 0, P, N_ex, N_ey, u_N=1)
+    ns = NavierStokesSolver(L_x, L_y, Re, 0, P, N_ex, N_ey, u_N=1, iprint=iprint)
 
     u, v, p = ns.get_solution(T_func=None)
 
@@ -317,3 +337,5 @@ if __name__ == "__main__":
     ax.set_xlim([0, 1])
     ax.set_ylim([0, 1])
     plt.show()
+    if save:
+        plt.savefig('tmp.png')
