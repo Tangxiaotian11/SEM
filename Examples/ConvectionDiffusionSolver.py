@@ -1,5 +1,6 @@
 import sys, os
 sys.path.append(os.getcwd() + '/..')
+import typing
 import numpy as np
 import scipy.sparse as sp_sparse
 import scipy.sparse.linalg as linalg
@@ -43,12 +44,16 @@ class ConvectionDiffusionSolver:
         # grid
         self._L_x = L_x
         self._L_y = L_y
+        self._P = P
+        self._N_ex = N_ex
+        self._N_ey = N_ey
+        dx = L_x / N_ex
+        dy = L_y / N_ey
         self.points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
+        self.points_e = SEM.element_nodes(P, N_ex, N_ey, dx, dy)
         self.N = (N_ex*P+1)*(N_ey*P+1)
 
         # global matrices
-        dx = self._L_x / N_ex
-        dy = self._L_y / N_ey
         self._M = SEM.global_mass_matrix(P, N_ex, N_ey, dx, dy)
         self._K = SEM.global_stiffness_matrix(P, N_ex, N_ey, dx, dy)
         self._C_x, self._C_y = SEM.global_convection_matrices(P, N_ex, N_ey, dx, dy)
@@ -69,10 +74,12 @@ class ConvectionDiffusionSolver:
             self._dirichlet[np.isclose(self.points[1], self._L_y)] = T_N
         self._mask_dir = ~np.isnan(self._dirichlet)
 
-    def _get_residuals(self, T, u, v):
+    def _get_residuals(self, T: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray:
         """
-        Returns residual with precalculated system matrices\n
-        :param T: temperature as global vector
+        Returns residual\n
+        :param T: T as global vector
+        :param u: u as global vector
+        :param v: v as global vector
         :return: res as global vector
         """
         # left-hand-side multiplication of convection velocities, i.e. Pe*(u @ C_x + v @ C_y)
@@ -88,17 +95,17 @@ class ConvectionDiffusionSolver:
 
         return res
 
-    def _calc_jacobians(self, T):
+    def _calc_jacobians(self, T: np.ndarray):
         """
         Precalculates JACOBIans\n
-        :param T: temperature as global vector\n
+        :param T: T as global vector\n
         """
         # JACOBI matrices including chain rule but excluding DIRICHLET BC
         # right-hand-side multiplication of T, i.e. Pe*(C_x @ T)
         self._Jac_T_u = self._Pe * sparse.tensordot(self._C_x, T, (2, 0), return_type=sparse.COO).tocsr()
         self._Jac_T_v = self._Pe * sparse.tensordot(self._C_y, T, (2, 0), return_type=sparse.COO).tocsr()
 
-    def _get_dresiduals(self, dT, du=None, dv=None):
+    def _get_dresiduals(self, dT: np.ndarray, du: np.ndarray = None, dv: np.ndarray = None) -> np.ndarray:
         """
         Returns residual differential with precalculated JACOBIans\n
         :param dT: T differential as global vector
@@ -117,14 +124,13 @@ class ConvectionDiffusionSolver:
 
         return dres
 
-    def _get_update(self, dres, dT0=None):
+    def _get_update(self, dres: np.ndarray, dT0: np.ndarray = None) -> np.ndarray:
         """
-        Returns temperature differential for given residual differential with precalculated JAVOBIans\n
+        Returns temperature differential for given residual differential with precalculated JACOBIans\n
         :param dres: residual differential as global vector
         :param dT0: guess for T differential as global vector
         :return: dT as global vector
         """
-        atol = self._mtol * np.sqrt(self.N)
 
         # LHS
         def lhs_mv(dT):
@@ -132,18 +138,6 @@ class ConvectionDiffusionSolver:
             return self._get_dresiduals(dT)
         lhs_mv.fCount = 0
         lhs_LO = linalg.LinearOperator((self.N,)*2, lhs_mv, dtype=float)
-
-        # precon
-        # def precon_mv(c):
-        #     z = np.zeros(self.N)
-        #     z[self._mask_dir] = c[self._mask_dir]
-        #     c[~self._mask_dir] -= self._K[~self._mask_dir, :][:, self._mask_dir] @ c[self._mask_dir]
-        #     z[~self._mask_dir], info = linalg.cg(self._K[~self._mask_dir, :][:, ~self._mask_dir],
-        #                                          c[~self._mask_dir], atol=atol*1e-1, tol=0)
-        #     if info != 0:
-        #         raise RuntimeError(f'ConvectionDiffusion precon CG: Failed to converge in {info} iterations')
-        #     return z
-        # precon_LO = linalg.LinearOperator((self.N,)*2, precon_mv, dtype=float)
 
         # solve
         def print_res(xk):
@@ -154,7 +148,8 @@ class ConvectionDiffusionSolver:
         print_res.iterCount = 0
 
         dT, info = linalg.lgmres(A=lhs_LO, b=dres, M=None, x0=dT0,
-                                 atol=atol, tol=0, inner_m=int(self.N*0.1), callback=print_res)
+                                 atol=self._mtol*np.sqrt(self.N), tol=0,
+                                 inner_m=int(self.N*0.3), callback=print_res)  # TODO set realistic inner_m
         if info != 0:
             raise RuntimeError(f'ConvectionDiffusion LGMRES: Failed to converge in {info} iterations')
 
@@ -164,22 +159,52 @@ class ConvectionDiffusionSolver:
 
         return dT
 
-    def get_solution(self, u_func, v_func, T0=None):
+    def _get_solution(self, u: np.ndarray, v: np.ndarray, T0: np.ndarray = None) -> np.ndarray:
         """
-        Returns Temperature solution
-        :param u_func: u(x,y) as vectorized function
-        :param v_func: v(x,y) as vectorized function
+        Returns solution\n
+        :param u: u as global vector
+        :param v: v as global vector
         :param T0: guess for T as global vector
         :return: T as global vector
         """
-        if T0 is None:
-            T0 = np.zeros(self.N)
-        u = u_func(self.points[0], self.points[1]) if u_func is not None else np.zeros(self.N)
-        v = v_func(self.points[0], self.points[1]) if v_func is not None else np.zeros(self.N)
+        T = T0 if T0 is not None else np.zeros(self.N)
 
-        res = self._get_residuals(T0, u, v)
+        res = self._get_residuals(T, u, v)
         dT = self._get_update(-res)  # single NEWTON step because problem is already linear
-        return T0 + dT
+        return T + dT
+
+    def _get_vector(self, f_func: typing.Callable[[np.ndarray, np.ndarray], np.ndarray]) -> np.ndarray:
+        """
+        Returns global vector from f\n
+        :param f_func: f as function
+        :return: f as global vector
+        """
+        return f_func(self.points[0], self.points[1])
+
+    def _get_interpol(self, f: np.ndarray, points_plot: typing.Tuple[np.ndarray, np.ndarray]) -> np.ndarray:
+        """
+        Returns interpolation of f at plotting points\n
+        :param f: f as global vector
+        :param points_plot: plotting points (xᵢⱼ[i,j],yᵢⱼ[i,j])
+        :return: f(xᵢⱼ,yᵢⱼ)[i,j]
+        """
+        f_e = SEM.scatter(f, self._P, self._N_ex, self._N_ey)
+        return SEM.eval_interpolation(f_e, self.points_e, points_plot)
+
+    def run(self, u_func: typing.Callable[[np.ndarray, np.ndarray], np.ndarray],
+            v_func: typing.Callable[[np.ndarray, np.ndarray], np.ndarray],
+            points_plot: typing.Tuple[np.ndarray, np.ndarray]) -> np.ndarray:
+        """
+        Returns solution at plotting points
+        :param u_func: u as function
+        :param v_func: v as function
+        :param points_plot: plotting points (xᵢⱼ[i,j],yᵢⱼ[i,j])
+        :return: T(xᵢⱼ,yᵢⱼ)[i,j]
+        """
+        u = self._get_vector(u_func)
+        v = self._get_vector(v_func)
+        T = self._get_solution(u, v)
+        return self._get_interpol(T, points_plot)
 
 
 if __name__ == "__main__":
@@ -191,7 +216,7 @@ if __name__ == "__main__":
     N_ex = 16
     N_ey = 16
     Pe = 40
-    iprint = []
+    iprint = ['LGMRES_suc', 'LGMRES_iter']
     save = False
 
     for i, arg in enumerate(sys.argv):
@@ -213,21 +238,15 @@ if __name__ == "__main__":
             save = bool(sys.argv[i+1])
 
     # plotting points
-    points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
-    points_e = SEM.element_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
+    x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 51), np.linspace(0, L_y, 51), indexing='ij')
 
     cd = ConvectionDiffusionSolver(L_x, L_y, Pe, P, N_ex, N_ey, T_E=-0.5, T_W=0.5, iprint=iprint)
 
     u = lambda x, y: (y-0.5)
     v = lambda x, y: -(x-0.5)
-    T = cd.get_solution(u, v)
-
-    # scatter for plot
-    T_e = SEM.scatter(T, P, N_ex, N_ey)
+    T_plot = cd.run(u, v, (x_plot, y_plot))
 
     # plot
-    x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 51), np.linspace(0, L_y, 51), indexing='ij')
-    T_plot = SEM.eval_interpolation(T_e, points_e, (x_plot, y_plot))
     fig = plt.figure(figsize=(L_x*4, L_y*4))
     ax = fig.gca()
     CS = ax.contour(x_plot, y_plot, T_plot, levels=11, colors='k', linestyles='solid')

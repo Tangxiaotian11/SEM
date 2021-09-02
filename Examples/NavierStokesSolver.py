@@ -1,5 +1,6 @@
 import sys, os
 sys.path.append(os.getcwd() + '/..')
+import typing
 import numpy as np
 import scipy.sparse as sp_sparse
 import scipy.sparse.linalg as linalg
@@ -52,12 +53,16 @@ class NavierStokesSolver:
         # grid
         self._L_x = L_x
         self._L_y = L_y
+        self._P = P
+        self._N_ex = N_ex
+        self._N_ey = N_ey
+        dx = L_x / N_ex
+        dy = L_y / N_ey
         self.points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
+        self.points_e = SEM.element_nodes(P, N_ex, N_ey, dx, dy)
         self.N = (N_ex*P+1)*(N_ey*P+1)
 
         # global matrices
-        dx = self._L_x / N_ex
-        dy = self._L_y / N_ey
         self._M = SEM.global_mass_matrix(P, N_ex, N_ey, dx, dy)
         self._K = SEM.global_stiffness_matrix(P, N_ex, N_ey, dx, dy)
         self._G_x, self._G_y = SEM.global_gradient_matrices(P, N_ex, N_ey, dx, dy)
@@ -85,9 +90,10 @@ class NavierStokesSolver:
         self._mask_bound = ~np.isnan(self._dirichlet_u)
         self._mask_dir_p = ~np.isnan(self._dirichlet_p)
 
-    def _get_residuals(self, u, v, p, T):
+    def _get_residuals(self, u: np.ndarray, v: np.ndarray, p: np.ndarray, T: np.ndarray)\
+            -> typing.Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Returns momentum and continuity residuals with precalculated system matrices\n
+        Returns momentum and continuity residuals\n
         :param u: u as global vector
         :param v: v as global vector
         :param p: p as global vector
@@ -114,7 +120,7 @@ class NavierStokesSolver:
 
         return res_u, res_v, res_cont
 
-    def _calc_jacobians(self, u, v):
+    def _calc_jacobians(self, u: np.ndarray, v: np.ndarray):
         """
         Precalculates JACOBIans\n
         :param u: u as global vector
@@ -129,7 +135,8 @@ class NavierStokesSolver:
         self._Jac_u_v = self._Re * sparse.tensordot(self._C_y, u, (2, 0), return_type=sparse.COO).tocsr()
         self._Jac_v_u = self._Re * sparse.tensordot(self._C_x, v, (2, 0), return_type=sparse.COO).tocsr()
 
-    def _get_dresiduals(self, du, dv, dp, dT=None):
+    def _get_dresiduals(self, du: np.ndarray, dv: np.ndarray, dp: np.ndarray, dT: np.ndarray = None)\
+            -> typing.Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Returns momentum and continuity residual differentials with precalculated JACOBIans\n
         :param du: u differential as global vector
@@ -152,7 +159,9 @@ class NavierStokesSolver:
 
         return dres_u, dres_v, dres_cont
 
-    def _get_update(self, dres_u, dres_v, dres_cont, du0=None, dv0=None, dp0=None):
+    def _get_update(self, dres_u: np.ndarray, dres_v: np.ndarray, dres_cont: np.ndarray,
+                    du0: np.ndarray = None, dv0: np.ndarray = None, dp0: np.ndarray = None)\
+            -> typing.Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Returns velocity and pressure differentials for given momentum and continuity residual differentials with
         precalculated JAVOBIans\n
@@ -173,7 +182,7 @@ class NavierStokesSolver:
         Jac_velo[mask, mask] = 1  # ...
         Jac_velo = Jac_velo.tocsc()
         Jac_velo_lu = linalg.splu(Jac_velo)
-        if 'LU' in self._iprint:
+        if 'LU_suc' in self._iprint:
             print(f'NavierStokes LU: Succeeded in {time.perf_counter()-tStart:0.2f}sec '
                   f'with fill factor {Jac_velo_lu.nnz/Jac_velo.nnz:0.1f}')
 
@@ -227,7 +236,7 @@ class NavierStokesSolver:
 
         dp, info = linalg.lgmres(A=schur_LO, b=b_schur, M=precon_LO, x0=dp0,
                                  atol=self._mtol*np.sqrt(self.N), tol=0,
-                                 inner_m=int(self.N*0.3), callback=print_res)
+                                 inner_m=int(self.N*0.3), callback=print_res)  # TODO set realistic inner_m
         if info != 0:
             raise RuntimeError(f'NavierStokes LGMRES: Failed to converge in {info} iterations')
 
@@ -248,10 +257,11 @@ class NavierStokesSolver:
 
         return du, dv, dp
 
-    def get_solution(self, T_func, u0=None, v0=None, p0=None):
+    def _get_solution(self, T: np.ndarray, u0: np.ndarray = None, v0: np.ndarray = None, p0: np.ndarray = None)\
+            -> typing.Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Returns solution
-        :param T_func: T(x,y) as vectorized function
+        Returns nonlinear solution\n
+        :param T: T as global vector
         :param u0: guess for u as global vector
         :param v0: guess for v as global vector
         :param p0: guess for p as global vector
@@ -260,17 +270,16 @@ class NavierStokesSolver:
         u = u0 if u0 is not None else np.zeros(self.N)
         v = v0 if v0 is not None else np.zeros(self.N)
         p = p0 if p0 is not None else np.zeros(self.N)
-        T = T_func(self.points[0], self.points[1]) if T_func is not None else np.zeros(self.N)
 
-        k = 0
+        self._k = 0
         while True:
             res_u, res_v, res_cont = self._get_residuals(u, v, p, T)
             norm = np.linalg.norm((res_u, res_v, res_cont), ord=2)
             if 'NEWTON_iter' in self._iprint:
-                print(f'NavierStokes NEWTON: {k}\t{norm}')
-            if norm <= self._mtol_newton * np.sqrt(self.N * 3):
+                print(f'NavierStokes NEWTON: {self._k}\t{norm}')
+            if norm <= self._mtol_newton*np.sqrt(self.N*3):
                 if 'NEWTON_suc' in self._iprint:
-                    print(f'NavierStokes NEWTON: Converged in {k} iterations'
+                    print(f'NavierStokes NEWTON: Converged in {self._k} iterations'
                           f' with max-norm {np.linalg.norm((res_u, res_v, res_cont), ord=np.inf)}')
                 break
             self._calc_jacobians(u, v)
@@ -278,9 +287,42 @@ class NavierStokesSolver:
             u += du
             v += dv
             p += dp
-            k += 1
+            self._k += 1
 
         return u, v, p
+
+    def _get_vector(self, f_func: typing.Callable[[np.ndarray, np.ndarray], np.ndarray]) -> np.ndarray:
+        """
+        Returns global vector from f\n
+        :param f_func: f as function
+        :return: f as global vector
+        """
+        return f_func(self.points[0], self.points[1])
+
+    def _get_interpol(self, f: np.ndarray, points_plot: typing.Tuple[np.ndarray, np.ndarray]) -> np.ndarray:
+        """
+        Returns interpolation of f at plotting points\n
+        :param f: f as global vector
+        :param points_plot: plotting points (xᵢⱼ[i,j],yᵢⱼ[i,j])
+        :return: f(xᵢⱼ,yᵢⱼ)[i,j]
+        """
+        f_e = SEM.scatter(f, self._P, self._N_ex, self._N_ey)
+        return SEM.eval_interpolation(f_e, self.points_e, points_plot)
+
+    def run(self, T_func: typing.Callable[[np.ndarray, np.ndarray], np.ndarray],
+            points_plot: typing.Tuple[np.ndarray, np.ndarray])\
+            -> typing.Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Returns solution at plotting points
+        :param T_func: T as function
+        :param points_plot: plotting points (xᵢⱼ[i,j],yᵢⱼ[i,j])
+        :return: u(xᵢⱼ,yᵢⱼ)[i,j], v(xᵢⱼ,yᵢⱼ)[i,j], p(xᵢⱼ,yᵢⱼ)[i,j]
+        """
+        T = self._get_vector(T_func)
+        u, v, p = self._get_solution(T)
+        return self._get_interpol(u, points_plot),\
+               self._get_interpol(v, points_plot),\
+               self._get_interpol(p, points_plot)
 
 
 if __name__ == "__main__":
@@ -292,7 +334,7 @@ if __name__ == "__main__":
     P = 4
     N_ex = 16
     N_ey = 16
-    iprint = ['NEWTON_suc', 'NEWTON_iter']
+    iprint = ['NEWTON_suc', 'NEWTON_iter', 'LGMRES_suc', 'LGMRES_iter']
     save = False
 
     for i, arg in enumerate(sys.argv):
@@ -314,20 +356,13 @@ if __name__ == "__main__":
             save = bool(sys.argv[i+1])
 
     # plotting points
-    points_e = SEM.element_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
+    x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 101), np.linspace(0, L_y, 101), indexing='ij')
 
     ns = NavierStokesSolver(L_x, L_y, Re, 0, P, N_ex, N_ey, u_N=1, iprint=iprint)
 
-    u, v, p = ns.get_solution(T_func=None)
+    u_plot, v_plot, p_plot = ns.run(T_func=lambda x, y: 0*x*y,
+                                    points_plot=(x_plot, y_plot))
 
-    # scatter for plot
-    u_e = SEM.scatter(u, P, N_ex, N_ey)
-    v_e = SEM.scatter(v, P, N_ex, N_ey)
-
-    # plot
-    x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 101), np.linspace(0, L_y, 101), indexing='ij')
-    u_plot = SEM.eval_interpolation(u_e, points_e, (x_plot, y_plot))
-    v_plot = SEM.eval_interpolation(v_e, points_e, (x_plot, y_plot))
     fig = plt.figure(figsize=(L_x*4, L_y*4))
     ax = fig.gca()
     ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=2)

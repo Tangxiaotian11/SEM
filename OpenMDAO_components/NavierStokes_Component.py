@@ -24,9 +24,9 @@ class NavierStokes_Component(om.ImplicitComponent):
         self.ns = NavierStokesSolver(self.options['L_x'], self.options['L_y'], self.options['Re'], self.options['Gr'],
                                      self.options['P'], self.options['N_ex'], self.options['N_ey'],
                                      self.options['v_W'], self.options['v_E'], self.options['u_S'], self.options['u_N'],
-                                     self.options['mtol'])
+                                     self.options['mtol'], self.options['mtol'], ['NEWTON_suc'])
 
-        self.iter_count_solve = 0
+        self.iter_count_solve = 0  # num of get_update calls
 
         # declare variables
         self.add_input('T', val=np.zeros(self.ns.N), desc='T as global vector')
@@ -63,3 +63,8 @@ class NavierStokes_Component(om.ImplicitComponent):
                                 d_outputs['u'], d_outputs['v'], d_outputs['p'])
 
         self.iter_count_solve += 1
+
+    def solve_nonlinear(self, inputs, outputs):
+        sol = self.ns._get_solution(inputs['T'], outputs['u'], outputs['v'], outputs['p'])
+        outputs['u'], outputs['v'], outputs['p'] = sol
+        self.iter_count_solve += self.ns._k  # get num of get_update calls as num of inner NEWTON iterations

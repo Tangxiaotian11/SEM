@@ -26,7 +26,7 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
                                             self.options['T_S'], self.options['T_N'],
                                             self.options['mtol'])
 
-        self.iter_count_solve = 0
+        self.iter_count_solve = 0  # num of get_update calls
 
         # declare variables
         self.add_output('T', val=np.zeros(self.cd.N), desc='T as global vector')
@@ -56,3 +56,7 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
         d_outputs['T'] = self.cd._get_update(d_residuals['T'], dT0=d_outputs['T'])
 
         self.iter_count_solve += 1
+
+    def solve_nonlinear(self, inputs, outputs):
+        outputs['T'] = self.cd._get_solution(inputs['u'], inputs['v'], outputs['T'])
+        self.iter_count_solve += 1  # problem is linear so solving requires one get:update call
