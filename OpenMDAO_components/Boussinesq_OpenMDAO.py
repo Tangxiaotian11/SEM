@@ -2,8 +2,10 @@ import sys, os
 sys.path.append(os.getcwd() + '/..')
 import numpy as np
 import SEM
-from OpenMDAO_components.NavierStokes_Component import NavierStokes_Component
+from Examples.ConvectionDiffusionSolver import ConvectionDiffusionSolver
+from Examples.NavierStokesSolver import NavierStokesSolver
 from OpenMDAO_components.ConvectionDiffusion_Component import ConvectionDiffusion_Component
+from OpenMDAO_components.NavierStokes_Component import NavierStokes_Component
 import openmdao.api as om
 import matplotlib.pyplot as plt
 
@@ -35,7 +37,7 @@ mtol_gmres = 1e-10  # tolerance on root mean square residual for GMRES
 mtol_newton = 1e-8  # tolerance on root mean square residual for NEWTON
 
 N = (N_ex*P+1)*(N_ey*P+1)
-atol_gmres = mtol_gmres*np.sqrt(N*4)
+atol_gmres = mtol_gmres*np.sqrt(N*4)  # N * num var = size of linear system
 atol_newton = mtol_newton*np.sqrt(N*4)
 
 # grid
@@ -49,16 +51,20 @@ T = np.zeros(N)
 T[np.isclose(points[0], 0)] = 0.5  # initial guess
 T[np.isclose(points[0], L_x)] = -0.5
 
+# initialize backend solvers
+cd = ConvectionDiffusionSolver(L_x=L_x, L_y=L_y, Pe=Re*Pr, P=P, N_ex=N_ex, N_ey=N_ey, T_W=0.5, T_E=-0.5,
+                               mtol=mtol_internal)
+ns = NavierStokesSolver(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr, P=P, N_ex=N_ex, N_ey=N_ey,
+                        mtol=mtol_internal, mtol_newton=mtol_internal, iprint=['NEWTON_suc'])
+
 # initialize OpenMDAO solver
 prob = om.Problem()
 model = prob.model
-model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(L_x=L_x, L_y=L_y, Pe=Re*Pr, T_W=0.5, T_E=-0.5,
-                                                                         P=P, N_ex=N_ex, N_ey=N_ey, mtol=mtol_internal))
-model.add_subsystem('NavierStokes', NavierStokes_Component(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
-                                                           P=P, N_ex=N_ex, N_ey=N_ey, mtol=mtol_internal))
+model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(solver=cd))
+model.add_subsystem('NavierStokes', NavierStokes_Component(solver=ns))
+model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
 model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
-model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
 
 # JACOBI preconditioned NEWTON  /  Inexact NEWTON
 model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_newton, rtol=0)

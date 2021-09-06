@@ -6,26 +6,11 @@ import openmdao.api as om
 class NavierStokes_Component(om.ImplicitComponent):
     def initialize(self):
         # declare parameters
-        self.options.declare('L_x', types=(float, int), desc='length in x direction')
-        self.options.declare('L_y', types=(float, int), desc='length in y direction')
-        self.options.declare('Re', types=(float, int), desc='REYNOLDS number')
-        self.options.declare('Gr', types=(float, int), default=0, desc='GRASHOF number')
-        self.options.declare('P', types=int, desc='polynomial order')
-        self.options.declare('N_ex', types=int, desc='num of elements in x direction')
-        self.options.declare('N_ey', types=int, desc='num of elements in y direction')
-        self.options.declare('u_N', types=(float, int), default=0, desc='tangential velocity at y=L_y')
-        self.options.declare('u_S', types=(float, int), default=0, desc='tangential velocity at y=0')
-        self.options.declare('v_E', types=(float, int), default=0, desc='tangential velocity at x=0')
-        self.options.declare('v_W', types=(float, int), default=0, desc='tangential velocity at x=L_x')
-        self.options.declare('mtol', types=(float, int), default=1e-7, desc='tolerance on root mean square residual')
+        self.options.declare('solver', desc='solver object')
 
     def setup(self):
         # initialize backend solver
-        self.ns = NavierStokesSolver(self.options['L_x'], self.options['L_y'], self.options['Re'], self.options['Gr'],
-                                     self.options['P'], self.options['N_ex'], self.options['N_ey'],
-                                     self.options['v_W'], self.options['v_E'], self.options['u_S'], self.options['u_N'],
-                                     self.options['mtol'], self.options['mtol'], ['NEWTON_suc'])
-
+        self.ns = self.options['solver']
         self.iter_count_solve = 0  # num of get_update calls
 
         # declare variables
