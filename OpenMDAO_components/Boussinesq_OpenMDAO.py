@@ -66,11 +66,13 @@ model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
 model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 
-# JACOBI preconditioned NEWTON  /  Inexact NEWTON
+# NEWTON
 model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_newton, rtol=0)
 model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=8, rho=0.8, c=0.2)
+# JACOBI preconditioned NEWTON-KRYLOV
 model.linear_solver = om.ScipyKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=20)
 model.linear_solver.precon = om.LinearBlockJac(iprint=-1, maxiter=1)
+# Inexact NEWTON
 # model.linear_solver = om.LinearRunOnce()
 
 # Nonlinear GAUSS-SEIDEL

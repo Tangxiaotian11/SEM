@@ -1,5 +1,4 @@
 import numpy as np
-from Examples.NavierStokesSolver import NavierStokesSolver
 import openmdao.api as om
 
 
@@ -9,15 +8,15 @@ class NavierStokes_Component(om.ImplicitComponent):
         self.options.declare('solver', desc='solver object')
 
     def setup(self):
-        # initialize backend solver
         self.ns = self.options['solver']
-        self.iter_count_solve = 0  # num of get_update calls
 
         # declare variables
         self.add_input('T', val=np.zeros(self.ns.N), desc='T as global vector')
         self.add_output('u', val=np.zeros(self.ns.N), desc='u as global vector')
         self.add_output('v', val=np.zeros(self.ns.N), desc='v as global vector')
         self.add_output('p', val=np.zeros(self.ns.N), desc='p as global vector')
+
+        self.iter_count_solve = 0  # num of get_update calls
 
     def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
         residuals['u'], residuals['v'], residuals['p'] = \
@@ -30,11 +29,8 @@ class NavierStokes_Component(om.ImplicitComponent):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        if d_outputs._names.__len__() == 0:  # if called by precon, only w.r.t. inputs
-            pass
-            # zero = np.zeros(self.ns.N)
-            # d_residuals['u'], d_residuals['v'], d_residuals['p'] = \
-            #     self.ns._get_dresiduals(zero, zero, zero, d_inputs['T'])
+        if d_outputs._names.__len__() == 0:  # if called by precon
+            pass  # do not modify RHS
         else:
             d_residuals['u'], d_residuals['v'], d_residuals['p'] = \
                 self.ns._get_dresiduals(d_outputs['u'], d_outputs['v'], d_outputs['p'], d_inputs['T'])

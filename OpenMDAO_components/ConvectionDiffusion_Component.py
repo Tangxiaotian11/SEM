@@ -1,5 +1,4 @@
 import numpy as np
-from Examples.ConvectionDiffusionSolver import ConvectionDiffusionSolver
 import openmdao.api as om
 
 
@@ -10,12 +9,13 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
 
     def setup(self):
         self.cd = self.options['solver']
-        self.iter_count_solve = 0  # num of get_update calls
 
         # declare variables
         self.add_output('T', val=np.zeros(self.cd.N), desc='T as global vector')
         self.add_input('u', val=np.zeros(self.cd.N), desc='u as global vector')
         self.add_input('v', val=np.zeros(self.cd.N), desc='v as global vector')
+
+        self.iter_count_solve = 0  # num of get_update calls
 
     def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
         residuals['T'] = self.cd._get_residuals(outputs['T'], inputs['u'], inputs['v'])
@@ -27,9 +27,8 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        if d_outputs._names.__len__() == 0:  # if called by precon, only w.r.t. inputs
-            pass
-            # d_residuals['T'] = self.cd._get_dresiduals(np.zeros(self.cd.N), d_inputs['u'], d_inputs['v'])
+        if d_outputs._names.__len__() == 0:  # if called by precon
+            pass  # do not modify RHS
         else:
             d_residuals['T'] = self.cd._get_dresiduals(d_outputs['T'], d_inputs['u'], d_inputs['v'])
 
@@ -43,4 +42,4 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
 
     def solve_nonlinear(self, inputs, outputs):
         outputs['T'] = self.cd._get_solution(inputs['u'], inputs['v'], outputs['T'])
-        self.iter_count_solve += 1  # problem is linear so solving requires one get:update call
+        self.iter_count_solve += 1  # problem is linear so only one get_update call
