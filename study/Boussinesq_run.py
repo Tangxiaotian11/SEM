@@ -11,7 +11,7 @@ import openmdao.api as om
 import sys
 
 
-def run(log=False, save=True, mode='',
+def run(log=False, save=True, mode='', backend='SciPy',
         L_x=1., L_y=1., Re=1.e2, Ra=1.e3, Pr=0.71,
         P=4, Ne=8,
         mtol_nonlin=1e-8, AGi=8, AGr=0.8, AGc=0.2,
@@ -47,27 +47,36 @@ def run(log=False, save=True, mode='',
         # initialize OpenMDAO solver
         prob = om.Problem()
         model = prob.model
-        model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(solver=cd))
-        model.add_subsystem('NavierStokes', NavierStokes_Component(solver=ns))
-        model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
-        model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
-        model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
-        if mode == 'JN' or mode == 'IN':
+        parallel = model.add_subsystem('parallel', om.ParallelGroup())
+        parallel.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(solver=cd))
+        parallel.add_subsystem('NavierStokes', NavierStokes_Component(solver=ns))
+        parallel.connect('ConvectionDiffusion.T', 'NavierStokes.T')
+        parallel.connect('NavierStokes.u', 'ConvectionDiffusion.u')
+        parallel.connect('NavierStokes.v', 'ConvectionDiffusion.v')
+        if mode == 'GS':
+            model.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)
+        else:
             model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_nonlin, rtol=0)
             model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=AGi, rho=AGr, c=AGc)
             if mode == 'IN':
                 model.linear_solver = om.LinearRunOnce()
+            elif mode == 'JN':
+                if backend == 'SciPy':
+                    model.linear_solver = om.ScipyKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000)
+                elif backend == 'PETSc':
+                    model.linear_solver = om.PETScKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000,
+                                                         ksp_type='gmres', precon_side='left')
+                else:
+                    raise ValueError('Unknown backend')
+                model.linear_solver.precon = om.LinearRunOnce()
             else:
-                model.linear_solver = om.ScipyKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000)
-                model.linear_solver.precon = om.LinearBlockJac(iprint=-1, maxiter=1)
-        elif mode == 'GS':
-            model.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)
+                raise ValueError('Unknown method')
         prob.setup()
 
         # solve
-        prob['NavierStokes.u'] = u  # hand over guess
-        prob['NavierStokes.v'] = v
-        prob['ConvectionDiffusion.T'] = T
+        prob['parallel.NavierStokes.u'] = u  # hand over guess
+        prob['parallel.NavierStokes.v'] = v
+        prob['parallel.ConvectionDiffusion.T'] = T
 
         if log:
             sys.stdout = open(f'Boussinesq_study/{title}.log', 'w')
@@ -78,13 +87,14 @@ def run(log=False, save=True, mode='',
             prob.run_model()
 
         # Result
-        iter_CD = model.ConvectionDiffusion.iter_count_solve
-        iter_NS = model.NavierStokes.iter_count_solve
+        iter_CD = model.parallel.ConvectionDiffusion.iter_count_solve
+        iter_NS = model.parallel.NavierStokes.iter_count_solve
         iter_nonlin = model.nonlinear_solver._iter_count
         iter = [iter_CD, iter_NS, iter_nonlin]
-        u = prob['NavierStokes.u']
-        v = prob['NavierStokes.v']
-        T = prob['ConvectionDiffusion.T']
+        print(iter)
+        u = prob['parallel.NavierStokes.u']
+        v = prob['parallel.NavierStokes.v']
+        T = prob['parallel.ConvectionDiffusion.T']
         u_e = SEM.scatter(u, P, N_ex, N_ey)
         v_e = SEM.scatter(v, P, N_ex, N_ey)
         T_e = SEM.scatter(T, P, N_ex, N_ey)
@@ -105,6 +115,7 @@ if __name__ == "__main__":
     Ne_set = [8]
     Re_set = [1.e2]
     Ra_set = [1.e3]
+    backend = 'SciPy'
 
     for i, arg in enumerate(sys.argv):
         if arg == '-P':
@@ -119,9 +130,11 @@ if __name__ == "__main__":
             mode = sys.argv[i+1]
         if arg == '-log':
             log = bool(sys.argv[i+1])
+        if arg == '-backend':
+            backend = sys.argv[i+1]
 
     for Re in Re_set:
         for Ra in Ra_set:
             for P in P_set:
                 for Ne in Ne_set:
-                    run(mode=mode, log=log, save=save, Re=Re, Ra=Ra, P=int(P), Ne=int(Ne))
+                    run(mode=mode, log=log, save=save, Re=Re, Ra=Ra, P=int(P), Ne=int(Ne), backend=backend)

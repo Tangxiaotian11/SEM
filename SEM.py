@@ -250,7 +250,7 @@ def eval_interpolation(u_e: np.ndarray, points_e: np.ndarray, points_plot: typin
     Returns the evaluation of u in the points points_plot.\n
     :param u_e: element coefficients array uᵐⁿₖₗ[m,n,i,j]
     :param points_e: element nodes array [xᵐⁿₖₗ[m,n,k,l],yᵐⁿₖₗ[m,n,k,l]]
-    :param points_plot: evaluation points (xᵢⱼ[i,j],yᵢⱼ[i,j])
+    :param points_plot: evaluation points (xᵢⱼ[i,j],yᵢⱼ[i,j]) as ij-indexed meshgrid
     :return: u(xᵢⱼ,yᵢⱼ)[i,j]
     """
     N_ex = u_e.shape[0]

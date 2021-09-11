@@ -60,17 +60,19 @@ ns = NavierStokesSolver(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr, P=P, N_ex=N_ex, N_ey=
 # initialize OpenMDAO solver
 prob = om.Problem()
 model = prob.model
-model.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(solver=cd))
-model.add_subsystem('NavierStokes', NavierStokes_Component(solver=ns))
-model.connect('ConvectionDiffusion.T', 'NavierStokes.T')
-model.connect('NavierStokes.u', 'ConvectionDiffusion.u')
-model.connect('NavierStokes.v', 'ConvectionDiffusion.v')
+parallel = model.add_subsystem('parallel', om.ParallelGroup())
+parallel.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(solver=cd))
+parallel.add_subsystem('NavierStokes', NavierStokes_Component(solver=ns))
+parallel.connect('ConvectionDiffusion.T', 'NavierStokes.T')
+parallel.connect('NavierStokes.u', 'ConvectionDiffusion.u')
+parallel.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 
 # NEWTON
 model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_newton, rtol=0)
 model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=8, rho=0.8, c=0.2)
 # JACOBI preconditioned NEWTON-KRYLOV
 model.linear_solver = om.ScipyKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=20)
+# model.linear_solver = om.PETScKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=20, ksp_type='gmres', precon_side='left')
 model.linear_solver.precon = om.LinearBlockJac(iprint=-1, maxiter=1)
 # Inexact NEWTON
 # model.linear_solver = om.LinearRunOnce()
@@ -82,17 +84,17 @@ prob.setup()
 # om.n2(prob) # prints N2-diagram
 
 # solve
-prob['NavierStokes.u'] = u  # hand over guess
-prob['NavierStokes.v'] = v
-prob['ConvectionDiffusion.T'] = T
+prob['parallel.NavierStokes.u'] = u  # hand over guess
+prob['parallel.NavierStokes.v'] = v
+prob['parallel.ConvectionDiffusion.T'] = T
 prob.run_model()
-u = prob['NavierStokes.u']
-v = prob['NavierStokes.v']
-T = prob['ConvectionDiffusion.T']
+u = prob['parallel.NavierStokes.u']
+v = prob['parallel.NavierStokes.v']
+T = prob['parallel.ConvectionDiffusion.T']
 
 print(f"num of NonLin iterations: {model.nonlinear_solver._iter_count}")
-print(f"num of get_update calls in CD: {model.ConvectionDiffusion.iter_count_solve}")
-print(f"num of get_update calls in NS: {model.NavierStokes.iter_count_solve}")
+print(f"num of get_update calls in CD: {model.parallel.ConvectionDiffusion.iter_count_solve}")
+print(f"num of get_update calls in NS: {model.parallel.NavierStokes.iter_count_solve}")
 
 # scatter for plot
 u_e = SEM.scatter(u, P, N_ex, N_ey)
