@@ -36,14 +36,14 @@ N_ex = 8     # num of elements in x direction
 N_ey = 8     # num of elements in y direction
 mtol_internal = 1e-13  # tolerance on root mean square residual for internal solvers
 mtol_gmres = 1e-10  # tolerance on root mean square residual for GMRES
-mtol_newton = 1e-8  # tolerance on root mean square residual for NEWTON
+mtol_nonlin = 1e-8  # tolerance on root mean square residual for NEWTON
 
 N = (N_ex*P+1)*(N_ey*P+1)
-atol_gmres = mtol_gmres*np.sqrt(N*4)  # N * num var = size of linear system
-atol_newton = mtol_newton*np.sqrt(N*4)
+DOF = 4*N
+atol_gmres = mtol_gmres * np.sqrt(DOF)
+atol_nonlin = mtol_nonlin * np.sqrt(DOF)
 
 # initialize backend solvers
-
 if rank == 0:
     cd = ConvectionDiffusionSolver(L_x=L_x, L_y=L_y, Pe=Re*Pr,
                                    P=P, N_ex=N_ex, N_ey=N_ey,
@@ -67,14 +67,14 @@ parallel.connect('NavierStokes.u', 'ConvectionDiffusion.u')
 parallel.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 
 # - NEWTON
-parallel.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_newton, rtol=0)
+parallel.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_nonlin, rtol=0)
 parallel.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=8, rho=0.8, c=0.2)
 # --- JACOBI preconditioned NEWTON-KRYLOV
 parallel.linear_solver = om.PETScKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=20, ksp_type='gmres', precon_side='left')
-parallel.linear_solver.precon = om.LinearRunOnce()
-# --- Inexact NEWTON
-#parallel.linear_solver = om.LinearRunOnce()
-# - Nonlinear JACOBI
+parallel.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
+# --- NEWTON-JACOBI
+#parallel.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
+# - Nonlinear GAUSS-SEIDEL
 #parallel.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_newton, rtol=0)
 prob.setup()
 
@@ -100,14 +100,15 @@ if rank == 1:
 prob.run_model()
 
 # local post-processing
+x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 101), np.linspace(0, L_y, 101), indexing='ij')
 if rank == 0:
-    results = None
+    T_plot = cd._get_interpol(prob['parallel.ConvectionDiffusion.T'], (x_plot, y_plot))
+    results = T_plot
     iters = model.parallel.ConvectionDiffusion.iter_count_solve
 if rank == 1:
-    x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 101), np.linspace(0, L_y, 101), indexing='ij')
     u_plot = ns._get_interpol(prob['parallel.NavierStokes.u'], (x_plot, y_plot))
     v_plot = ns._get_interpol(prob['parallel.NavierStokes.v'], (x_plot, y_plot))
-    results = [np.max(u_plot), np.max(v_plot)]
+    results = [u_plot, v_plot]
     iters = model.parallel.NavierStokes.iter_count_solve
 # gather to rank 0
 results = MPI.COMM_WORLD.gather(results, root=0)
@@ -115,8 +116,22 @@ iters = MPI.COMM_WORLD.gather(iters, root=0)
 
 # post-processing
 if rank == 0:
+    T_plot, u_plot, v_plot = results[0], *results[1]
+    fig = plt.figure(figsize=(L_x*6, L_y*6))
+    ax = fig.gca()
+    ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=3)
+    CS = ax.contour(x_plot, y_plot, T_plot, levels=11, colors='k', linestyles='solid')
+    ax.clabel(CS, inline=True)
+    ax.set_title(f"Re={Re:.1e}, Ra={Ra:.1e}, Pr={Pr}, P={P}, N_ex={N_ex}, N_ey={N_ey}, mtol={mtol_nonlin:.0e}",
+                 fontsize='small')
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_xlim([0, 1])
+    ax.set_ylim([0, 1])
+    fig.savefig('temp.png', dpi=fig.dpi)
+
     print(f"num of NonLin iterations: {model.parallel.nonlinear_solver._iter_count}")
     print(f"num of get_update calls in CD: {iters[0]}")
     print(f"num of get_update calls in NS: {iters[1]}")
-    print(f"u_max*RePr = {results[1][0]*Re*Pr:.2f}")
-    print(f"v_max*RePr = {results[1][1]*Re*Pr:.2f}")
+    print(f"u_max*RePr = {np.max(u_plot)*Re*Pr:.2f}")
+    print(f"v_max*RePr = {np.max(v_plot)*Re*Pr:.2f}")
