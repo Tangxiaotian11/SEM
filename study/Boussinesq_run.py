@@ -54,21 +54,21 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
         parallel.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 
         if mode == 'GS':
-            model.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)
+            model.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)  # runs as Jac
         else:
-            model.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_nonlin, rtol=0)
-            model.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=AGi, rho=AGr, c=AGc)
+            parallel.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_nonlin, rtol=0)
+            parallel.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=AGi, rho=AGr, c=AGc)
             if mode == 'NJ':
-                model.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
+                parallel.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
             elif mode == 'JNK':
                 if backend == 'SciPy':
-                    model.linear_solver = om.ScipyKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000)
+                    parallel.linear_solver = om.ScipyKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000)
                 elif backend == 'PETSc':
-                    model.linear_solver = om.PETScKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000,
+                    parallel.linear_solver = om.PETScKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000,
                                                             ksp_type='gmres', precon_side='left')
                 else:
                     raise ValueError('Unknown backend')
-                model.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
+                parallel.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
             else:
                 raise ValueError('Unknown method')
         prob.setup()
@@ -116,7 +116,7 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
         # post-processing
         if rank == 0:
             points_e = SEM.element_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
-            iter_nonlin = model.nonlinear_solver._iter_count
+            iter_nonlin = model.parallel.nonlinear_solver._iter_count
             iter = [iters[0], iters[1], iter_nonlin]
             print(iter)
             # save

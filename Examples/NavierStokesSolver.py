@@ -193,28 +193,13 @@ class NavierStokesSolver:
 
         # == solve for pressure ==
         # RHS
-        b_schur_u, b_schur_v = solve_jac_velo(dres_u, dres_v)
-        b_schur = -(self._G_x @ b_schur_u + self._G_y @ b_schur_v)
-        b_schur[self._mask_bound] = 0  # apply NEUMANN pressure conditions
-        b_schur[self._mask_dir_p] = 0  # apply DIRICHLET pressure conditions
-        b_schur += dres_cont
+        b_schur = dres_cont - self._get_dresiduals(*solve_jac_velo(dres_u, dres_v), np.zeros(self.N))[2]
 
         # LHS
         def schur_mv(dp):
             schur_mv.fCount += 1
-            # apply gradient
-            f_x = self._G_x @ dp
-            f_y = self._G_y @ dp
-            # apply DIRICHLET velocity condition
-            f_x[self._mask_bound] = f_y[self._mask_bound] = 0
-            # apply inverse
-            f_x, f_y = solve_jac_velo(f_x, f_y)
-            # apply divergence
-            f = -(self._G_x @ f_x + self._G_y @ f_y)
-            # apply artificial NEUMANN pressure condition
-            f[self._mask_bound] = self._K[self._mask_bound, :] @ dp
-            # apply DIRICHLET pressure condition
-            f[self._mask_dir_p] = dp[self._mask_dir_p]
+            f_x, f_y = solve_jac_velo(*self._get_dresiduals(np.zeros(self.N), np.zeros(self.N), dp)[:2])
+            f = self._get_dresiduals(-f_x, -f_y, dp)[2]
             return f
         schur_mv.fCount = 0
         schur_LO = linalg.LinearOperator((self.N,)*2, schur_mv, dtype=float)
@@ -245,15 +230,8 @@ class NavierStokesSolver:
             print(f'NavierStokes LGMRES: Converged in {schur_mv.fCount} evaluations with max-norm {res}')
 
         # == solve for velocities ==
-        # RHS
-        b_u = -self._G_x @ dp
-        b_v = -self._G_y @ dp
-        b_u[self._mask_bound] = 0  # apply DIRICHLET velocity condition
-        b_v[self._mask_bound] = 0  # ...
-        b_u += dres_u
-        b_v += dres_v
-
-        du, dv = solve_jac_velo(b_u, b_v)
+        b_u, b_v = self._get_dresiduals(np.zeros(self.N), np.zeros(self.N), dp)[:2]
+        du, dv = solve_jac_velo(dres_u-b_u, dres_v-b_v)
 
         return du, dv, dp
 
@@ -334,7 +312,7 @@ if __name__ == "__main__":
     P = 4
     N_ex = 16
     N_ey = 16
-    iprint = ['NEWTON_suc', 'NEWTON_iter', 'LGMRES_suc', 'LGMRES_iter']
+    iprint = ['NEWTON_suc', 'NEWTON_iter', 'LGMRES_suc', 'LGMRES_iter', 'LU_suc']
     save = False
 
     for i, arg in enumerate(sys.argv):

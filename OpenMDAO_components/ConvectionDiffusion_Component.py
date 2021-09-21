@@ -27,10 +27,10 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        if d_outputs._names.__len__() == 0:  # if called by precon
-            pass  # do not modify RHS
-        else:
-            d_residuals['T'] = self.cd._get_dresiduals(d_outputs['T'], d_inputs['u'], d_inputs['v'])
+        dT = d_outputs['T'] if 'T' in d_outputs else np.zeros(self.cd.N)
+        du = d_inputs['u'] if 'u' in d_inputs else np.zeros(self.cd.N)
+        dv = d_inputs['v'] if 'v' in d_inputs else np.zeros(self.cd.N)
+        d_residuals['T'] = self.cd._get_dresiduals(dT, du, dv)
 
     def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':

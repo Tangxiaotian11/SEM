@@ -29,7 +29,7 @@ Possible reference solutions from MARKATOS-PERICLEOUS (doi.org/10.1016/0017-9310
 L_x = 1      # length in x direction
 L_y = 1      # length in y direction
 Re = 1e2     # REYNOLDS number
-Ra = 1e4     # RAYLEIGH number
+Ra = 1e3     # RAYLEIGH number
 Pr = 0.71    # PRANDTL number
 P = 4        # polynomial order
 N_ex = 8     # num of elements in x direction
@@ -75,7 +75,7 @@ parallel.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, max
 # --- NEWTON-JACOBI
 #parallel.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
 # - Nonlinear GAUSS-SEIDEL
-#parallel.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_newton, rtol=0)
+#model.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)  # runs as Jac
 prob.setup()
 
 # preprocessing

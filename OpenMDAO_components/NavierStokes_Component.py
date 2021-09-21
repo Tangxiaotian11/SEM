@@ -29,11 +29,11 @@ class NavierStokes_Component(om.ImplicitComponent):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 
-        if d_outputs._names.__len__() == 0:  # if called by precon
-            pass  # do not modify RHS
-        else:
-            d_residuals['u'], d_residuals['v'], d_residuals['p'] = \
-                self.ns._get_dresiduals(d_outputs['u'], d_outputs['v'], d_outputs['p'], d_inputs['T'])
+        du = d_outputs['u'] if 'u' in d_outputs else np.zeros(self.ns.N)
+        dv = d_outputs['v'] if 'v' in d_outputs else np.zeros(self.ns.N)
+        dp = d_outputs['p'] if 'p' in d_outputs else np.zeros(self.ns.N)
+        dT = d_inputs['T'] if 'T' in d_inputs else np.zeros(self.ns.N)
+        d_residuals['u'], d_residuals['v'], d_residuals['p'] = self.ns._get_dresiduals(du, dv, dp, dT)
 
     def solve_linear(self, d_outputs, d_residuals, mode):
         if mode != 'fwd':
