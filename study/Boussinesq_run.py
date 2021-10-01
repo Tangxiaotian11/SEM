@@ -12,6 +12,18 @@ from mpi4py import MPI
 rank = MPI.COMM_WORLD.Get_rank()
 
 
+class Logger(object):
+    def __init__(self, file):
+        self.terminal = sys.__stdout__
+        self.log = open(file, "a")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self): pass
+
+
 def run(log=False, save=True, mode='JNK', backend='PETSc',
         L_x=1., L_y=1., Re=1.e2, Ra=1.e3, Pr=0.71,
         P=4, Ne=8,
@@ -25,6 +37,8 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
         DOF = 4*N
         atol_gmres = mtol_gmres*np.sqrt(DOF)
         atol_nonlin = mtol_nonlin*np.sqrt(DOF)
+        if mode == 'GS':
+            AGi=AGr=AGc=0
 
         title = f"Boussinesq{mode}_{Re:.1e}~{Ra:.1e}~{Pr}_{P}~{N_ex}~{N_ey}_{mtol_nonlin:.0e}~{AGi}~{AGr}~{AGc}_{mtol_gmres:.0e}~{restart}_{mtol_internal:.0e}"
         if rank == 0:
@@ -54,12 +68,12 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
         parallel.connect('NavierStokes.v', 'ConvectionDiffusion.v')
 
         if mode == 'GS':
-            model.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)  # runs as Jac
+            parallel.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)    # require change in nonlinear_block_gs.py
         else:
             parallel.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_nonlin, rtol=0)
             parallel.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=AGi, rho=AGr, c=AGc)
             if mode == 'NJ':
-                parallel.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
+                parallel.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # require change in linear_block_jac.py
             elif mode == 'JNK':
                 if backend == 'SciPy':
                     parallel.linear_solver = om.ScipyKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000)
@@ -68,7 +82,7 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
                                                             ksp_type='gmres', precon_side='left')
                 else:
                     raise ValueError('Unknown backend')
-                parallel.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
+                parallel.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # require change in linear_block_jac.py
             else:
                 raise ValueError('Unknown method')
         prob.setup()
@@ -89,12 +103,11 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
         # solve
         if log:
             try:
-                sys.stdout = open(f'Boussinesq_study/{title}.log', 'w')
+                sys.stdout = Logger(f'Boussinesq_study/{title}.log')
             except FileNotFoundError:
                 os.mkdir("Boussinesq_study")
-                sys.stdout = open(f'Boussinesq_study/{title}.log', 'w')
+                sys.stdout = Logger(f'Boussinesq_study/{title}.log')
             prob.run_model()
-            sys.stdout.close()
             sys.stdout = sys.__stdout__
         else:
             prob.run_model()
