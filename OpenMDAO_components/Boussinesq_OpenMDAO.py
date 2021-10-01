@@ -6,6 +6,8 @@ from Examples.ConvectionDiffusionSolver import ConvectionDiffusionSolver
 from Examples.NavierStokesSolver import NavierStokesSolver
 from OpenMDAO_components.ConvectionDiffusion_Component import ConvectionDiffusion_Component
 from OpenMDAO_components.NavierStokes_Component import NavierStokes_Component
+from OpenMDAO_components.CD2NS_Component import CD2NS_Component
+from OpenMDAO_components.NS2CD_Component import NS2CD_Component
 import openmdao.api as om
 import matplotlib.pyplot as plt
 from mpi4py import MPI
@@ -61,21 +63,26 @@ prob = om.Problem()
 model = prob.model
 parallel = model.add_subsystem('parallel', om.ParallelGroup())
 parallel.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(solver=cd))
+parallel.add_subsystem('CD2NS', CD2NS_Component(solver_from=cd, solver_to=ns))
 parallel.add_subsystem('NavierStokes', NavierStokes_Component(solver=ns))
-parallel.connect('ConvectionDiffusion.T', 'NavierStokes.T')
-parallel.connect('NavierStokes.u', 'ConvectionDiffusion.u')
-parallel.connect('NavierStokes.v', 'ConvectionDiffusion.v')
+parallel.add_subsystem('NS2CD', NS2CD_Component(solver_from=ns, solver_to=cd))
+parallel.connect('ConvectionDiffusion.T', 'CD2NS.T')
+parallel.connect('CD2NS.T_int', 'NavierStokes.T')
+parallel.connect('NavierStokes.u', 'NS2CD.u')
+parallel.connect('NS2CD.u_int', 'ConvectionDiffusion.u')
+parallel.connect('NavierStokes.v', 'NS2CD.v')
+parallel.connect('NS2CD.v_int', 'ConvectionDiffusion.v')
 
 # - NEWTON
 parallel.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_nonlin, rtol=0)
 parallel.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=8, rho=0.8, c=0.2)
 # --- JACOBI preconditioned NEWTON-KRYLOV
 parallel.linear_solver = om.PETScKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=20, ksp_type='gmres', precon_side='left')
-parallel.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
+parallel.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # require change in linear_block_jac.py
 # --- NEWTON-JACOBI
-#parallel.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
+#parallel.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # require change in linear_block_jac.py
 # - Nonlinear GAUSS-SEIDEL
-#model.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)  # runs as Jac
+#model.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)  # require change in nonlinear_block_gs.py
 prob.setup()
 
 # preprocessing
