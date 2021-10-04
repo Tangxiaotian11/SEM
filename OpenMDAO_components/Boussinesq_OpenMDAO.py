@@ -6,8 +6,6 @@ from Examples.ConvectionDiffusionSolver import ConvectionDiffusionSolver
 from Examples.NavierStokesSolver import NavierStokesSolver
 from OpenMDAO_components.ConvectionDiffusion_Component import ConvectionDiffusion_Component
 from OpenMDAO_components.NavierStokes_Component import NavierStokes_Component
-from OpenMDAO_components.CD2NS_Component import CD2NS_Component
-from OpenMDAO_components.NS2CD_Component import NS2CD_Component
 import openmdao.api as om
 import matplotlib.pyplot as plt
 from mpi4py import MPI
@@ -41,7 +39,7 @@ mtol_gmres = 1e-10  # tolerance on root mean square residual for GMRES
 mtol_nonlin = 1e-8  # tolerance on root mean square residual for NEWTON
 
 N = (N_ex*P+1)*(N_ey*P+1)  # grid points per variable
-DOF = 7*N  # T,u,v,p,T_int,u_int,v_int
+DOF = 4*N  # T,u,v,p
 atol_gmres = mtol_gmres * np.sqrt(DOF)
 atol_nonlin = mtol_nonlin * np.sqrt(DOF)
 
@@ -57,28 +55,23 @@ ns = NavierStokesSolver(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
 # initialize OpenMDAO solver
 prob = om.Problem()
 model = prob.model
-parallel = model.add_subsystem('parallel', om.ParallelGroup())
-parallel.add_subsystem('NavierStokes', NavierStokes_Component(solver=ns))  # rank 1
-parallel.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(solver=cd))  # rank 0
-parallel.add_subsystem('NS2CD', NS2CD_Component(solver_from=ns, solver_to=cd))  # rank 1
-parallel.add_subsystem('CD2NS', CD2NS_Component(solver_from=cd, solver_to=ns))  # rank 0
-parallel.connect('ConvectionDiffusion.T', 'CD2NS.T')
-parallel.connect('CD2NS.T_int', 'NavierStokes.T')
-parallel.connect('NavierStokes.u', 'NS2CD.u')
-parallel.connect('NS2CD.u_int', 'ConvectionDiffusion.u')
-parallel.connect('NavierStokes.v', 'NS2CD.v')
-parallel.connect('NS2CD.v_int', 'ConvectionDiffusion.v')
+pg = model.add_subsystem('PG', om.ParallelGroup())
+pg.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(solver_CD=cd, solver_NS=ns))  # rank 0
+pg.add_subsystem('NavierStokes', NavierStokes_Component(solver_CD=cd, solver_NS=ns))  # rank 1
+pg.connect('ConvectionDiffusion.T_cd', 'NavierStokes.T_cd')
+pg.connect('NavierStokes.u_ns', 'ConvectionDiffusion.u_ns')
+pg.connect('NavierStokes.v_ns', 'ConvectionDiffusion.v_ns')
 
 # - NEWTON
-parallel.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_nonlin, rtol=0)
-# parallel.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=8, rho=0.8, c=0.2)
+pg.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_nonlin, rtol=0)
+#pg.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=8, rho=0.8, c=0.2)
 # --- JACOBI preconditioned NEWTON-KRYLOV
-parallel.linear_solver = om.PETScKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=20, ksp_type='gmres', precon_side='left')
-parallel.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # requires change in linear_block_jac.py
+pg.linear_solver = om.PETScKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=20, ksp_type='gmres', precon_side='left')
+pg.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # requires change in linear_block_jac.py
 # --- NEWTON-JACOBI
-#parallel.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # requires change in linear_block_jac.py
+#pg.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # requires change in linear_block_jac.py
 # - Nonlinear GAUSS-SEIDEL
-#parallel.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)  # requires change in nonlinear_block_gs.py
+#pg.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)  # requires change in nonlinear_block_gs.py
 prob.setup()
 
 # solve
@@ -87,14 +80,14 @@ prob.run_model()
 # local post-processing
 x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 101), np.linspace(0, L_y, 101), indexing='ij')
 if rank == 0:
-    T_plot = cd._get_interpol(prob['parallel.ConvectionDiffusion.T'], (x_plot, y_plot))
+    T_plot = cd._get_interpol(prob['PG.ConvectionDiffusion.T_cd'], (x_plot, y_plot))
     results = T_plot
-    iters = model.parallel.ConvectionDiffusion.iter_count_solve
+    iters = pg.ConvectionDiffusion.iter_count_solve
 if rank == 1:
-    u_plot = ns._get_interpol(prob['parallel.NavierStokes.u'], (x_plot, y_plot))
-    v_plot = ns._get_interpol(prob['parallel.NavierStokes.v'], (x_plot, y_plot))
+    u_plot = ns._get_interpol(prob['PG.NavierStokes.u_ns'], (x_plot, y_plot))
+    v_plot = ns._get_interpol(prob['PG.NavierStokes.v_ns'], (x_plot, y_plot))
     results = [u_plot, v_plot]
-    iters = model.parallel.NavierStokes.iter_count_solve
+    iters = pg.NavierStokes.iter_count_solve
 # gather to rank 0
 results = MPI.COMM_WORLD.gather(results, root=0)
 iters = MPI.COMM_WORLD.gather(iters, root=0)
@@ -115,7 +108,7 @@ if rank == 0:
     ax.set_ylim([0, 1])
     fig.savefig('temp.png', dpi=fig.dpi)
 
-    print(f"num of NonLin iterations: {model.parallel.nonlinear_solver._iter_count}")
+    print(f"num of NonLin iterations: {pg.nonlinear_solver._iter_count}")
     print(f"num of get_update calls in CD: {iters[0]}")
     print(f"num of get_update calls in NS: {iters[1]}")
     print(f"u_max*RePr = {np.max(u_plot)*Re*Pr:.2f}")

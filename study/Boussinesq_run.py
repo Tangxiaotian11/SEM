@@ -7,8 +7,6 @@ from Examples.ConvectionDiffusionSolver import ConvectionDiffusionSolver
 from Examples.NavierStokesSolver import NavierStokesSolver
 from OpenMDAO_components.ConvectionDiffusion_Component import ConvectionDiffusion_Component
 from OpenMDAO_components.NavierStokes_Component import NavierStokes_Component
-from OpenMDAO_components.CD2NS_Component import CD2NS_Component
-from OpenMDAO_components.NS2CD_Component import NS2CD_Component
 import openmdao.api as om
 from mpi4py import MPI
 rank = MPI.COMM_WORLD.Get_rank()
@@ -36,7 +34,7 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
         N_ex = Ne
         N_ey = Ne
         N = (N_ex*P+1)*(N_ey*P+1)  # grid points per variable
-        DOF = 7*N  # T,u,v,p,T_int,u_int,v_int
+        DOF = 4*N  # T,u,v,p
         atol_gmres = mtol_gmres*np.sqrt(DOF)
         atol_nonlin = mtol_nonlin*np.sqrt(DOF)
         if mode == 'GS':
@@ -58,50 +56,32 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
         # initialize OpenMDAO solver
         prob = om.Problem()
         model = prob.model
-        parallel = model.add_subsystem('parallel', om.ParallelGroup())
-        parallel.add_subsystem('NavierStokes', NavierStokes_Component(solver=ns))  # rank 1
-        parallel.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(solver=cd))  # rank 0
-        parallel.add_subsystem('NS2CD', NS2CD_Component(solver_from=ns, solver_to=cd))  # rank 1
-        parallel.add_subsystem('CD2NS', CD2NS_Component(solver_from=cd, solver_to=ns))  # rank 0
-        parallel.connect('ConvectionDiffusion.T', 'CD2NS.T')
-        parallel.connect('CD2NS.T_int', 'NavierStokes.T')
-        parallel.connect('NavierStokes.u', 'NS2CD.u')
-        parallel.connect('NS2CD.u_int', 'ConvectionDiffusion.u')
-        parallel.connect('NavierStokes.v', 'NS2CD.v')
-        parallel.connect('NS2CD.v_int', 'ConvectionDiffusion.v')
+        pg = model.add_subsystem('PG', om.ParallelGroup())
+        pg.add_subsystem('ConvectionDiffusion', ConvectionDiffusion_Component(solver_CD=cd, solver_NS=ns))  # rank 0
+        pg.add_subsystem('NavierStokes', NavierStokes_Component(solver_CD=cd, solver_NS=ns))  # rank 1
+        pg.connect('ConvectionDiffusion.T_cd', 'NavierStokes.T_cd')
+        pg.connect('NavierStokes.u_ns', 'ConvectionDiffusion.u_ns')
+        pg.connect('NavierStokes.v_ns', 'ConvectionDiffusion.v_ns')
 
         if mode == 'GS':
-            parallel.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)    # requires change in nonlinear_block_gs.py
+            pg.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)    # requires change in nonlinear_block_gs.py
         else:
-            parallel.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_nonlin, rtol=0)
-            parallel.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=AGi, rho=AGr, c=AGc)
+            pg.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_nonlin, rtol=0)
+            pg.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=AGi, rho=AGr, c=AGc)
             if mode == 'NJ':
-                parallel.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # requires change in linear_block_jac.py
+                pg.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # requires change in linear_block_jac.py
             elif mode == 'JNK':
                 if backend == 'SciPy':
-                    parallel.linear_solver = om.ScipyKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000)
+                    pg.linear_solver = om.ScipyKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000)
                 elif backend == 'PETSc':
-                    parallel.linear_solver = om.PETScKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000,
-                                                            ksp_type='gmres', precon_side='left')
+                    pg.linear_solver = om.PETScKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000,
+                                                      ksp_type='gmres', precon_side='left')
                 else:
                     raise ValueError('Unknown backend')
-                parallel.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # requires change in linear_block_jac.py
+                pg.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # requires change in linear_block_jac.py
             else:
                 raise ValueError('Unknown method')
         prob.setup()
-
-        # preprocessing
-        if rank == 0:
-            # grid
-            points = SEM.global_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
-            # initial guess
-            T = np.zeros(N)
-            T[np.isclose(points[0], 0)] = 0.5
-            T[np.isclose(points[0], L_x)] = -0.5
-            # hand over guess
-            prob['parallel.ConvectionDiffusion.T'] = T
-        if rank == 1:
-            pass
 
         # solve
         if log:
@@ -117,14 +97,14 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
 
         # Result
         if rank == 0:
-            T_e = SEM.scatter(prob['parallel.ConvectionDiffusion.T'], P, N_ex, N_ey)
+            T_e = SEM.scatter(prob['PG.ConvectionDiffusion.T_cd'], P, N_ex, N_ey)
             results = T_e
-            iters = model.parallel.ConvectionDiffusion.iter_count_solve
+            iters = pg.ConvectionDiffusion.iter_count_solve
         if rank == 1:
-            u_e = SEM.scatter(prob['parallel.NavierStokes.u'], P, N_ex, N_ey)
-            v_e = SEM.scatter(prob['parallel.NavierStokes.v'], P, N_ex, N_ey)
+            u_e = SEM.scatter(prob['PG.NavierStokes.u_ns'], P, N_ex, N_ey)
+            v_e = SEM.scatter(prob['PG.NavierStokes.v_ns'], P, N_ex, N_ey)
             results = [u_e, v_e]
-            iters = model.parallel.NavierStokes.iter_count_solve
+            iters = pg.NavierStokes.iter_count_solve
         # gather to rank 0
         results = MPI.COMM_WORLD.gather(results, root=0)
         iters = MPI.COMM_WORLD.gather(iters, root=0)
@@ -132,7 +112,7 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
         # post-processing
         if rank == 0:
             points_e = SEM.element_nodes(P, N_ex, N_ey, L_x/N_ex, L_y/N_ey)
-            iter_nonlin = model.parallel.nonlinear_solver._iter_count
+            iter_nonlin = pg.nonlinear_solver._iter_count
             iter = [iters[0], iters[1], iter_nonlin]
             print(iter)
             # save
