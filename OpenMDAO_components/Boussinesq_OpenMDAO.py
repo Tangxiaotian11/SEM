@@ -80,12 +80,12 @@ prob.run_model()
 # local post-processing
 x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 101), np.linspace(0, L_y, 101), indexing='ij')
 if rank == 0:
-    T_plot = cd._get_interpol(prob['PG.ConvectionDiffusion.T_cd'], (x_plot, y_plot))
+    T_plot = cd._get_interpol(pg.get_val('PG.ConvectionDiffusion.T_cd'), (x_plot, y_plot))
     results = T_plot
     iters = pg.ConvectionDiffusion.iter_count_solve
 if rank == 1:
-    u_plot = ns._get_interpol(prob['PG.NavierStokes.u_ns'], (x_plot, y_plot))
-    v_plot = ns._get_interpol(prob['PG.NavierStokes.v_ns'], (x_plot, y_plot))
+    u_plot = ns._get_interpol(pg.get_val('PG.NavierStokes.u_ns'), (x_plot, y_plot))
+    v_plot = ns._get_interpol(pg.get_val('PG.NavierStokes.v_ns'), (x_plot, y_plot))
     results = [u_plot, v_plot]
     iters = pg.NavierStokes.iter_count_solve
 # gather to rank 0

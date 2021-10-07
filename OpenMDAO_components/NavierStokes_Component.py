@@ -33,14 +33,14 @@ class NavierStokes_Component(om.ImplicitComponent):
         # T_ns = T_cd
         return T_ns
 
-    def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
+    def apply_nonlinear(self, inputs, outputs, residuals, *args):
         residuals['u_ns'], residuals['v_ns'], residuals['p_ns'] = \
             self.ns._get_residuals(outputs['u_ns'], outputs['v_ns'], outputs['p_ns'], self.change_inputs(inputs['T_cd']))
 
-    def linearize(self, inputs, outputs, partials, **kwargs):
+    def linearize(self, inputs, outputs, partials, *args):
         self.ns._calc_jacobians(outputs['u_ns'], outputs['v_ns'])
 
-    def apply_linear(self, inputs, outputs, d_inputs, d_outputs, d_residuals, mode):
+    def apply_linear(self, inputs, outputs, d_inputs, d_outputs, d_residuals, mode, *args):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 

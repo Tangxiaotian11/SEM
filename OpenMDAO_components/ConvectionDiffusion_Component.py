@@ -35,13 +35,13 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
         # u_cd, v_cd = u_ns, v_ns
         return u_cd, v_cd
 
-    def apply_nonlinear(self, inputs, outputs, residuals, **kwargs):
+    def apply_nonlinear(self, inputs, outputs, residuals, *args):
         residuals['T_cd'] = self.cd._get_residuals(outputs['T_cd'], *self.change_inputs(inputs['u_ns'], inputs['v_ns']))
 
-    def linearize(self, inputs, outputs, partials, **kwargs):
+    def linearize(self, inputs, outputs, partials, *args):
         self.cd._calc_jacobians(outputs['T_cd'])
 
-    def apply_linear(self, inputs, outputs, d_inputs, d_outputs, d_residuals, mode):
+    def apply_linear(self, inputs, outputs, d_inputs, d_outputs, d_residuals, mode, *args):
         if mode != 'fwd':
             raise ValueError('only forward mode implemented')
 

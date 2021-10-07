@@ -27,7 +27,7 @@ class Logger(object):
 def run(log=False, save=True, mode='JNK', backend='PETSc',
         L_x=1., L_y=1., Re=1.e2, Ra=1.e3, Pr=0.71,
         P=4, Ne=8,
-        mtol_nonlin=1e-8, AGi=0, AGr=0.0, AGc=0.0,
+        mtol_nonlin=1e-9, AGi=8, AGr=0.8, AGc=0.2,
         mtol_gmres=1e-10, restart=20,
         mtol_internal=1e-13):
 
@@ -66,11 +66,13 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
         if mode == 'GS':
             pg.nonlinear_solver = om.NonlinearBlockGS(iprint=2, use_apply_nonlinear=True, maxiter=1000, atol=atol_nonlin, rtol=0)    # requires change in nonlinear_block_gs.py
         else:
-            pg.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, maxiter=1000, atol=atol_nonlin, rtol=0)
+            pg.nonlinear_solver = om.NewtonSolver(iprint=2, solve_subsystems=True, max_sub_solves=0, atol=atol_nonlin, rtol=0)
             pg.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=AGi, rho=AGr, c=AGc)
             if mode == 'NJ':
+                pg.nonlinear_solver.options['maxiter'] = 1000
                 pg.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)  # requires change in linear_block_jac.py
             elif mode == 'JNK':
+                pg.nonlinear_solver.options['maxiter'] = 100
                 if backend == 'SciPy':
                     pg.linear_solver = om.ScipyKrylov(iprint=2, atol=atol_gmres, rtol=0, restart=restart, maxiter=5000)
                 elif backend == 'PETSc':
@@ -85,11 +87,12 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
 
         # solve
         if log:
-            try:
-                sys.stdout = Logger(f'Boussinesq_study/{title}.log')
-            except FileNotFoundError:
-                os.mkdir("Boussinesq_study")
-                sys.stdout = Logger(f'Boussinesq_study/{title}.log')
+            if rank == 0:
+                try:
+                    sys.stdout = Logger(f'Boussinesq_study/{title}.log')
+                except FileNotFoundError:
+                    os.mkdir("Boussinesq_study")
+                    sys.stdout = Logger(f'Boussinesq_study/{title}.log')
             prob.run_model()
             sys.stdout = sys.__stdout__
         else:
@@ -146,9 +149,9 @@ if __name__ == "__main__":
         if arg == '-mode':
             mode = sys.argv[i+1]
         if arg == '-log':
-            log = bool(sys.argv[i+1])
+            log = eval(sys.argv[i+1])
         if arg == '-save':
-            save = bool(sys.argv[i+1])
+            save = eval(sys.argv[i+1])
         if arg == '-backend':
             backend = sys.argv[i+1]
 
