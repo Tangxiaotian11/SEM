@@ -13,7 +13,7 @@ class NavierStokes_Component(om.ImplicitComponent):
         self.cd = self.options['solver_CD']
 
         # declare variables
-        self.add_input('T_cd', val=np.zeros(self.ns.N), desc='T as CD global vector')
+        self.add_input('T_cd', val=np.zeros(self.cd.N), desc='T as CD global vector')
         self.add_output('u_ns', val=np.zeros(self.ns.N), desc='u as NS global vector')
         self.add_output('v_ns', val=np.zeros(self.ns.N), desc='v as NS global vector')
         self.add_output('p_ns', val=np.zeros(self.ns.N), desc='p as NS global vector')
@@ -27,9 +27,9 @@ class NavierStokes_Component(om.ImplicitComponent):
         :return: T as NS global vector
         """
         # Note that, get_interpol requires a mesh grid but get_vector passes global vectors
-        shape = (2, self.cd._P*self.cd._N_ex+1, self.cd._P*self.cd._N_ey+1)  # shape of mesh grid
-        T_call = lambda x, y: self.ns._get_interpol(T_cd, np.reshape((x, y), shape)).flatten()  # mesh grid, as required
-        T_ns = self.cd._get_vector(f_func=T_call)
+        shape = (2, self.ns._P*self.ns._N_ex+1, self.ns._P*self.ns._N_ey+1)  # shape of mesh grid
+        T_call = lambda x, y: self.cd._get_interpol(T_cd, np.reshape((x, y), shape)).flatten()  # mesh grid, as required
+        T_ns = self.ns._get_vector(f_func=T_call)
         # T_ns = T_cd
         return T_ns
 

@@ -240,8 +240,8 @@ def global_convection_matrices(P: int, N_ex: int, N_ey: int, dx: float, dy: floa
     C_s = GLL.standard_convection_matrix(P)
     F_ex = np.multiply.outer(np.full(N_ex, dx/2), F_s)
     F_ey = np.multiply.outer(np.full(N_ey, dy/2), F_s)
-    C_x_e = np.einsum('m,irk,njsl->mnijrskl', np.ones(N_ex), C_s, F_ex, optimize=True)
-    C_y_e = np.einsum('mirk,n,jsl->mnijrskl', F_ey, np.ones(N_ey), C_s, optimize=True)
+    C_x_e = np.einsum('m,irk,njsl->mnijrskl', np.ones(N_ex), C_s, F_ey, optimize=True)
+    C_y_e = np.einsum('mirk,n,jsl->mnijrskl', F_ex, np.ones(N_ey), C_s, optimize=True)
     return assemble(C_x_e), assemble(C_y_e)
 
 

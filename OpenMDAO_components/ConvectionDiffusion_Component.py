@@ -27,7 +27,7 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
         :return: (u as CD global vector, v as CD global vector)
         """
         # Note that, get_interpol requires a mesh grid but get_vector passes global vectors
-        shape = (2, self.ns._P*self.ns._N_ex+1, self.ns._P*self.ns._N_ey+1)  # shape of mesh grid
+        shape = (2, self.cd._P*self.cd._N_ex+1, self.cd._P*self.cd._N_ey+1)  # shape of mesh grid
         u_call = lambda x, y: self.ns._get_interpol(u_ns, np.reshape((x, y), shape)).flatten()  # mesh grid, as required
         v_call = lambda x, y: self.ns._get_interpol(v_ns, np.reshape((x, y), shape)).flatten()
         u_cd = self.cd._get_vector(f_func=u_call)

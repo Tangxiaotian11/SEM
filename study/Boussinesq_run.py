@@ -33,10 +33,6 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
 
         N_ex = Ne
         N_ey = Ne
-        N = (N_ex*P+1)*(N_ey*P+1)  # grid points per variable
-        DOF = 4*N  # T,u,v,p
-        atol_gmres = mtol_gmres*np.sqrt(DOF)
-        atol_nonlin = mtol_nonlin*np.sqrt(DOF)
         if mode == 'GS':
             AGi=AGr=AGc=0
 
@@ -46,12 +42,16 @@ def run(log=False, save=True, mode='JNK', backend='PETSc',
 
         # initialize backend solvers
         cd = ConvectionDiffusionSolver(L_x=L_x, L_y=L_y, Pe=Re*Pr,
-                                       P=P, N_ex=N_ex, N_ey=N_ey,
+                                       P=P, N_ex=int(N_ex/2), N_ey=int(N_ey/2),
                                        T_W=0.5, T_E=-0.5,
                                        mtol=mtol_internal)
         ns = NavierStokesSolver(L_x=L_x, L_y=L_y, Re=Re, Gr=Ra/Pr,
                                 P=P, N_ex=N_ex, N_ey=N_ey,
                                 mtol=mtol_internal, mtol_newton=mtol_internal, iprint=['NEWTON_suc'])
+
+        DOF = 3*ns.N + 1*cd.N  # T,u,v,p
+        atol_gmres = mtol_gmres * np.sqrt(DOF)
+        atol_nonlin = mtol_nonlin * np.sqrt(DOF)
 
         # initialize OpenMDAO solver
         prob = om.Problem()
