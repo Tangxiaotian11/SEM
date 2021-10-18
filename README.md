@@ -1,8 +1,10 @@
 # SEM
 
-<p align="center">
-    <img src="https://raw.githubusercontent.com/SEhrm/SEM/matrixFree/Examples/Stokes_SciPy.png" width="400" height="400" alt="test"/>
-</p>
+[comment]: <> (<p align="center">)
+
+[comment]: <> (    <img src="https://raw.githubusercontent.com/SEhrm/SEM/matrixFree/Examples/Stokes_SciPy.png" width="400" height="400" alt="test"/>)
+
+[comment]: <> (</p>)
 Continuous GALERKIN spectral element method with GAUSS-LEGENDRE-LOBATTO nodal LAGRANGE polynomial base.
 
 ## Description
@@ -89,7 +91,7 @@ The main procedure is
     ```python
     import numpy as np
     import scipy.sparse.linalg as linalg
-    import SEM   
+    from Solvers import SEM   
  
     L_x = 2     # length in x direction
     L_y = 1     # length in y direction

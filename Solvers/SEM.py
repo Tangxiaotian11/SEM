@@ -3,7 +3,7 @@ Continuous GALERKIN spectral element method
 """
 import typing
 import numpy as np
-import GLL
+from Solvers import GLL
 import scipy.sparse as sp_sparse
 import sparse  # this package is exclusively used for three dimensional sparse matrices, i.e. the convection matrices
 

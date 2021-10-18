@@ -1,4 +1,5 @@
 numpy~=1.19.5
 scipy~=1.6.0
-sparse
+sparse~=0.12.0
+openmdao~=3.9.2
 

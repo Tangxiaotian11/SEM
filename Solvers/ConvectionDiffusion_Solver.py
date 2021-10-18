@@ -1,13 +1,9 @@
-import sys, os
-sys.path.append(os.getcwd() + '/..')
 import typing
 import numpy as np
 import scipy.sparse as sp_sparse
 import scipy.sparse.linalg as linalg
 import sparse  # this package is exclusively used for three dimensional sparse matrices, i.e. the convection matrices
-import SEM
-import time
-import matplotlib.pyplot as plt
+from Solvers import SEM
 
 
 class ConvectionDiffusionSolver:
@@ -205,56 +201,3 @@ class ConvectionDiffusionSolver:
         v = self._get_vector(v_func)
         T = self._get_solution(u, v)
         return self._get_interpol(T, points_plot)
-
-
-if __name__ == "__main__":
-    # Example
-    # input
-    L_x = 1
-    L_y = 1
-    P = 4
-    N_ex = 16
-    N_ey = 16
-    Pe = 40
-    iprint = ['LGMRES_suc', 'LGMRES_iter']
-    save = False
-
-    for i, arg in enumerate(sys.argv):
-        if arg == '-L_x':
-            P = float(sys.argv[i+1])
-        if arg == '-L_y':
-            P = float(sys.argv[i+1])
-        if arg == '-P':
-            P = int(sys.argv[i+1])
-        if arg == '-Ne_x':
-            Ne_x = int(sys.argv[i+1])
-        if arg == '-Ne_y':
-            Ne_y = int(sys.argv[i+1])
-        if arg == '-Pe':
-            Pe = float(sys.argv[i+1])
-        if arg == '-iprint':
-            iprint = sys.argv[i+1].split(',')
-        if arg == '-save':
-            save = bool(sys.argv[i+1])
-
-    # plotting points
-    x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 51), np.linspace(0, L_y, 51), indexing='ij')
-
-    cd = ConvectionDiffusionSolver(L_x, L_y, Pe, P, N_ex, N_ey, T_E=-0.5, T_W=0.5, iprint=iprint)
-
-    u = lambda x, y: (y-0.5)
-    v = lambda x, y: -(x-0.5)
-    T_plot = cd.run(u, v, (x_plot, y_plot))
-
-    # plot
-    fig = plt.figure(figsize=(L_x*4, L_y*4))
-    ax = fig.gca()
-    CS = ax.contour(x_plot, y_plot, T_plot, levels=11, colors='k', linestyles='solid')
-    ax.streamplot(x_plot.T, y_plot.T, u(x_plot, y_plot).T, v(x_plot, y_plot).T, density=1)
-    ax.clabel(CS, inline=True)
-    ax.set_title(f"P={P}, N_ex={N_ex}, N_ey={N_ey}, mtol={cd._mtol:.0e}", fontsize='small')
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.set_xlim([0, 1])
-    ax.set_ylim([0, 1])
-    plt.show()

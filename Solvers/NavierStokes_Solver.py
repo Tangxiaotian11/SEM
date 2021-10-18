@@ -1,13 +1,11 @@
-import sys, os
-sys.path.append(os.getcwd() + '/..')
 import typing
 import numpy as np
 import scipy.sparse as sp_sparse
 import scipy.sparse.linalg as linalg
 import sparse  # this package is exclusively used for three dimensional sparse matrices, i.e. the convection matrices
-import SEM
+from Solvers import SEM
 import time
-import matplotlib.pyplot as plt
+
 
 class NavierStokesSolver:
     def __init__(self, L_x: float, L_y: float, Re: float, Gr: float, P: int, N_ex: int, N_ey: int,
@@ -301,54 +299,3 @@ class NavierStokesSolver:
         return self._get_interpol(u, points_plot),\
                self._get_interpol(v, points_plot),\
                self._get_interpol(p, points_plot)
-
-
-if __name__ == "__main__":
-    # Example: lid-driven cavity flow
-    # input
-    L_x = 1
-    L_y = 1
-    Re = 400
-    P = 4
-    N_ex = 16
-    N_ey = 16
-    iprint = ['NEWTON_suc', 'NEWTON_iter', 'LGMRES_suc', 'LGMRES_iter', 'LU_suc']
-    save = False
-
-    for i, arg in enumerate(sys.argv):
-        if arg == '-L_x':
-            P = float(sys.argv[i+1])
-        if arg == '-L_y':
-            P = float(sys.argv[i+1])
-        if arg == '-P':
-            P = int(sys.argv[i+1])
-        if arg == '-Ne_x':
-            Ne_x = int(sys.argv[i+1])
-        if arg == '-Ne_y':
-            Ne_y = int(sys.argv[i+1])
-        if arg == '-Re':
-            Re = float(sys.argv[i+1])
-        if arg == '-iprint':
-            iprint = sys.argv[i+1].split(',')
-        if arg == '-save':
-            save = bool(sys.argv[i+1])
-
-    # plotting points
-    x_plot, y_plot = np.meshgrid(np.linspace(0, L_x, 101), np.linspace(0, L_y, 101), indexing='ij')
-
-    ns = NavierStokesSolver(L_x, L_y, Re, 0, P, N_ex, N_ey, u_N=1, iprint=iprint)
-
-    u_plot, v_plot, p_plot = ns.run(T_func=lambda x, y: 0*x*y,
-                                    points_plot=(x_plot, y_plot))
-
-    fig = plt.figure(figsize=(L_x*4, L_y*4))
-    ax = fig.gca()
-    ax.streamplot(x_plot.T, y_plot.T, u_plot.T, v_plot.T, density=2)
-    ax.set_title(f"Re={Re:.0e}, P={P}, N_ex={N_ex}, N_ey={N_ey}, mtol={ns._mtol_newton:.0e}", fontsize='small')
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.set_xlim([0, 1])
-    ax.set_ylim([0, 1])
-    plt.show()
-    if save:
-        plt.savefig('tmp.png')
