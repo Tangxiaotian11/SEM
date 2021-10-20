@@ -29,13 +29,19 @@ def run(log=False, save=True,
         P=4, N_e=8,
         mode='JNK', backend='PETSc',
         mtol_nonlin=1e-10, AGi=8, AGr=0.8, AGc=0.2,
-        mtol_gmres=1e-10, restart=20,
+        mtol_gmres=1e-13, restart=20,
         mtol_internal=1e-13):
 
+    title = f"Boussinesq{mode}_{Re:.1e}~{Ra:.1e}~{Pr}_{P}~{N_e}_"
     if mode == 'GS':
-        AGi=AGr=AGc=0
+        title += f"{mtol_nonlin:.0e}_{mtol_internal:.0e}"
+    elif mode == 'NJ':
+        title += f"{mtol_nonlin:.0e}~{AGi}~{AGr}~{AGc}_{mtol_internal:.0e}"
+    elif mode == 'JNK':
+        title += f"{mtol_nonlin:.0e}_{mtol_gmres:.0e}~{restart}_{mtol_internal:.0e}"
+    else:
+        raise RuntimeError('Unknown method')
 
-    title = f"Boussinesq{mode}_{Re:.1e}~{Ra:.1e}~{Pr}_{P}~{N_e}_{mtol_nonlin:.0e}~{AGi}~{AGr}~{AGc}_{mtol_gmres:.0e}~{restart}_{mtol_internal:.0e}"
     if rank == 0:
         print(title)
 
@@ -74,7 +80,7 @@ def run(log=False, save=True,
             pg.nonlinear_solver.options['maxiter'] = 1000
             pg.nonlinear_solver.linesearch = om.ArmijoGoldsteinLS(iprint=2, maxiter=AGi, rho=AGr, c=AGc)
             pg.linear_solver = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
-        elif mode == 'JNK':
+        else:
             pg.nonlinear_solver.options['maxiter'] = 100
             if backend == 'SciPy':
                 pg.linear_solver = om.ScipyKrylov(iprint=2, err_on_non_converge=True,
@@ -86,8 +92,6 @@ def run(log=False, save=True,
             else:
                 raise ValueError('Unknown backend')
             pg.linear_solver.precon = om.LinearBlockJac(iprint=-1, rtol=0, atol=0, maxiter=1)
-        else:
-            raise ValueError('Unknown method')
     prob.setup()
 
     # solve
