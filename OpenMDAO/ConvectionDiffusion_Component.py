@@ -1,5 +1,6 @@
 import numpy as np
 import openmdao.api as om
+import typing
 
 
 class ConvectionDiffusion_Component(om.ImplicitComponent):
@@ -19,7 +20,7 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
 
         self.iter_count_solve = 0  # num of get_update calls
 
-    def change_inputs(self, u_ns, v_ns):  # TODO types
+    def change_inputs(self, u_ns: np.ndarray, v_ns: np.ndarray) -> typing.Tuple[np.ndarray, np.ndarray]:
         """
         changes the basis of u and v from NS to CD; this is a linear map
         :param u_ns: u as NS global vector
@@ -32,7 +33,6 @@ class ConvectionDiffusion_Component(om.ImplicitComponent):
         v_call = lambda x, y: self.ns._get_interpol(v_ns, np.reshape((x, y), shape)).flatten()
         u_cd = self.cd._get_vector(f_func=u_call)
         v_cd = self.cd._get_vector(f_func=v_call)
-        # u_cd, v_cd = u_ns, v_ns
         return u_cd, v_cd
 
     def apply_nonlinear(self, inputs, outputs, residuals, *args):

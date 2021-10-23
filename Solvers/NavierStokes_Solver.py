@@ -12,9 +12,10 @@ class NavierStokesSolver:
                  v_W: float = 0, v_E: float = 0, u_S: float = 0, u_N: float = 0,
                  mtol=1e-7, mtol_newton=1e-5, iprint: list = ['NEWTON_suc', 'NEWTON_iter']):
         """
-        Solves the steady-state NAVIER-STOKES equation for u(x,y) and v(x,y) given the temperature T(x,y)\n
-        Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v] + Gr/Re [0, T] ∀(x,y)∈[0,L_x]×[0,L_y]\n
-        ∇∘[u, v] = 0 ∀(x,y)∈[0,L_x]×[0,L_y]\n
+        Solves the steady-state NAVIER-STOKES equation on (x,y)∈[0,L_x]×[0,L_y] for u(x,y) and v(x,y)
+        given the temperature T(x,y)\n
+        Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v] + Gr/Re [0, T]\n
+        ∇∘[u, v] = 0\n
         with no normal flow and tangential DIRICHLET conditions\n
         v(0,y)   = v_W y∈[0,L_y]\n
         v(L_x,y) = v_E y∈[0,L_y]\n
@@ -24,7 +25,7 @@ class NavierStokesSolver:
         ∂ₙp = 0 ∀(x,y)∈∂([0,L_x]×[0,L_y])\n
         :param L_x: length in x direction
         :param L_y: length in y direction
-        :param Re: REYNOLDS numver
+        :param Re: REYNOLDS number
         :param Gr: GRASHOF number
         :param P: polynomial order
         :param N_ex: num of elements in x direction
@@ -35,7 +36,8 @@ class NavierStokesSolver:
         :param u_N: DIRICHLET value
         :param mtol: tolerance on root mean square residuals for JACOBI inversion
         :param mtol_newton: tolerance on root mean square residuals for NEWTON
-        :param iprint: list of infos to print TODO desc
+        :param iprint: list of infos to print; 'LU_suc': LU success, 'LGMRES_iter': LGMRES iteration,
+         'LGMRES_suc': LGMRES success, 'NEWTON_iter': NEWTON iteration, 'NEWTON_suc': NEWTON success
         """
         self._iprint = iprint
 
@@ -171,7 +173,7 @@ class NavierStokesSolver:
         :param dp0: guess for p differential as global vector
         :return: du, dv, dp as global vectors
         """
-        # == Jac_velo solver == # TODO replace with QMR
+        # == Jac_velo solver == # ILU decomposition for now; replace with QMR when memory is an issue
         tStart = time.perf_counter()
         mask = np.hstack((self._mask_bound,) * 2)
         Jac_velo = sp_sparse.bmat([[self._Jac_u_u, self._Jac_u_v],
@@ -219,7 +221,7 @@ class NavierStokesSolver:
 
         dp, info = linalg.lgmres(A=schur_LO, b=b_schur, M=precon_LO, x0=dp0,
                                  atol=self._mtol*np.sqrt(self.N), tol=0,
-                                 inner_m=int(self.N*0.3), callback=print_res)  # TODO set realistic inner_m
+                                 inner_m=int(self.N*0.3), callback=print_res)  # not a realistic inner_m
         if info != 0:
             raise RuntimeError(f'NavierStokes LGMRES: Failed to converge in {info} iterations')
 

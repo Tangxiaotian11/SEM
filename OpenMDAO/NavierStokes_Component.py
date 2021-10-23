@@ -20,7 +20,7 @@ class NavierStokes_Component(om.ImplicitComponent):
 
         self.iter_count_solve = 0  # num of get_update calls
         
-    def change_inputs(self, T_cd):  # TODO types
+    def change_inputs(self, T_cd: np.ndarray) -> np.ndarray:
         """
         changes the basis of T from CD to NS; this is a linear map
         :param T_cd: T as CD global vector
@@ -30,7 +30,6 @@ class NavierStokes_Component(om.ImplicitComponent):
         shape = (2, self.ns._P*self.ns._N_ex+1, self.ns._P*self.ns._N_ey+1)  # shape of mesh grid
         T_call = lambda x, y: self.cd._get_interpol(T_cd, np.reshape((x, y), shape)).flatten()  # mesh grid, as required
         T_ns = self.ns._get_vector(f_func=T_call)
-        # T_ns = T_cd
         return T_ns
 
     def apply_nonlinear(self, inputs, outputs, residuals, *args):

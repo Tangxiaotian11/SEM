@@ -4,6 +4,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 from OpenMDAO.Boussinesq_SequentialCoupler import run
 
+"""
+Solves the dimensionless steady-state BOUSSINESQ equations on (x,y)∈[0,L_x]×[0,L_y] for u(x,y), v(x,y) and T(x,y)
+Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v] + Gr/Re [0, T]
+∇∘[u, v] = 0
+Pe [u, v]∘∇T = ∇²T
+with isothermal walls and adiabatic floor/ceiling
+T(0,y) = -0.5, T(L_x,y) = 0.5 ∀y∈[0,L_y]
+∂ₙT(x,0) = ∂ₙT(x,L_y) = 0 ∀x∈[0,L_x]
+and no-slip condition
+u(x,y) = v(x,y) = 0 ∀(x,y)∈∂([0,L_x]×[0,L_y])
+Possible reference solutions from DE VAHL DAVIS (doi.org/10.1002/fld.1650030305)
+"""
+
 if __name__ == "__main__":
     # input
     L_x = 1.     # length in x direction

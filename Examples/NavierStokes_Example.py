@@ -5,13 +5,14 @@ import matplotlib.pyplot as plt
 from Solvers.NavierStokes_Solver import NavierStokesSolver
 
 """
-Solves the dimensionless steady-state NAVIER-STOKES equations for u(x,y), v(x,y) and p(x,y)
-Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v] ∀(x,y)∈[0,L_x]×[0,L_y]
-∇∘[u, v] = 0 ∀(x,y)∈[0,L_x]×[0,L_y]
+Solves the dimensionless steady-state NAVIER-STOKES equations on (x,y)∈[0,L_x]×[0,L_y] for u(x,y), v(x,y) and p(x,y)
+Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v]
+∇∘[u, v] = 0
 as lid-driven flow
 u(x,L_y) = 1 ∀x∈[0,L_x]
 with artificial homogeneous NEUMANN boundary condition for p
 ∂ₙp = 0 ∀(x,y)∈∂([0,L_x]×[0,L_y])
+Possible reference solutions from GHIA (doi.org/10.1016/0021-9991(82)90058-4).
 """
 
 if __name__ == "__main__":

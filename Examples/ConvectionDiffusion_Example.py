@@ -5,13 +5,13 @@ import matplotlib.pyplot as plt
 from Solvers.ConvectionDiffusion_Solver import ConvectionDiffusionSolver
 
 """
-Solves the dimensionless steady-state convection-diffusion equations for T(x,y)
-Pe([u, v]∘∇)T = ∇²T ∀(x,y)∈[0,L_x]×[0,L_y]
+Solves the dimensionless steady-state convection-diffusion equations on (x,y)∈[0,L_x]×[0,L_y] for T(x,y)
+Pe([u, v]∘∇)T = ∇²T
 with circular flow
-[u, v] = [y-L_y/2, L_x/2+x] ∀(x,y)∈[0,L_x]×[0,L_y]
+[u, v] = [y-L_y/2, L_x/2+x]
 and homogenous NEUMANN boundary conditions
 ∂ₙT(x,L_y) = ∂ₙT(x,0) = 0 ∀x∈[0,L_x]
-and symmetric DIRICHLET conditions
+and DIRICHLET conditions
 T(y,0) = 0.5, T(y,L_x) = -0.5 ∀y∈[0,L_y]
 """
 

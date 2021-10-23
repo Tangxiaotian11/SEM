@@ -1,4 +1,5 @@
 import numpy as np
+import typing
 from Solvers.ConvectionDiffusion_Solver import ConvectionDiffusionSolver
 from Solvers.NavierStokes_Solver import NavierStokesSolver
 from OpenMDAO.ConvectionDiffusion_Component import ConvectionDiffusion_Component
@@ -6,14 +7,47 @@ from OpenMDAO.NavierStokes_Component import NavierStokes_Component
 import openmdao.api as om
 
 
-def run(points_plot, L_x, L_y,
+def run(points_plot: typing.Tuple[np.ndarray, np.ndarray], L_x: float, L_y: float,
         Re=1.e3, Ra=1.e3, Pr=0.71,
         P_cd=4, N_ex_cd=8, N_ey_cd=8,
         P_ns=4, N_ex_ns=8, N_ey_ns=8,
         mode='JNK',
         mtol_nonlin=1e-9, AGi=8, AGr=0.8, AGc=0.2,
         mtol_gmres=1e-10, restart=20,
-        mtol_internal=1e-13):
+        mtol_internal=1e-13) -> typing.Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Solves the dimensionless steady-state BOUSSINESQ equations on (x,y)∈[0,L_x]×[0,L_y] for u(x,y), v(x,y) and T(x,y)\n
+    Re([u, v]∘∇)[u, v] = -∇p + ∇²[u, v] + Gr/Re [0, T]\n
+    ∇∘[u, v] = 0\n
+    Pe [u, v]∘∇T = ∇²T\n
+    with isothermal walls and adiabatic floor/ceiling\n
+    T(0,y) = -0.5, T(L_x,y) = 0.5 ∀y∈[0,L_y]\n
+    ∂ₙT(x,0) = ∂ₙT(x,L_y) = 0 ∀x∈[0,L_x]\n
+    and no-slip condition\n
+    u(x,y) = v(x,y) = 0 ∀(x,y)∈∂([0,L_x]×[0,L_y])\n
+    :param points_plot: plotting points as meshed grid
+    :param L_x: length in x direction
+    :param L_y: length in y direction
+    :param Re: REYNOLDS number
+    :param Ra: RAYLEIGH number
+    :param Pr: PRANDTL number
+    :param P_cd: polynomial order for the CD solver
+    :param N_ex_cd: num of elements in x direction for the CD solver
+    :param N_ey_cd: num of elements in y direction for the CD solver
+    :param P_ns: polynomial order for the NS solver
+    :param N_ex_ns: num of elements in x direction for the NS solver
+    :param N_ey_ns: num of elements in y direction for the NS solver
+    :param mode: coupling method; 'JNK': block-JACOBI preconditioned NEWTON-KRYLOV, 'NJ': NEWTON-block-JACOBI,
+     'GS': nonlinear block-GAUSS-SEIDEL
+    :param mtol_nonlin: tolerance on absolute nonlinear root mean square residual
+    :param AGi: ARMIJIO-GOLDSTEIN iteration maximum
+    :param AGr: ARMIJIO-GOLDSTEIN contraction factor
+    :param AGc: ARMIJIO-GOLDSTEIN slope factor
+    :param mtol_gmres: tolerance on absolute linear root mean square residual
+    :param restart: GMRES restart value
+    :param mtol_internal: solver internal tolerance on absolute root mean square residual
+    :return: T, u, v
+    """
 
     # initialize backend solvers
     cd = ConvectionDiffusionSolver(L_x=L_x, L_y=L_y, Pe=Re*Pr,

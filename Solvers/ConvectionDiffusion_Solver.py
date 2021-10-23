@@ -11,9 +11,9 @@ class ConvectionDiffusionSolver:
                  T_W: float = None, T_E: float = None, T_S: float = None, T_N: float = None,
                  mtol=1e-7, iprint: list = []):
         """
-        Solves the steady-state convection-diffusion equation for T(x,y) given
+        Solves the steady-state convection-diffusion equation on (x,y)∈[0,L_x]×[0,L_y] for T(x,y) given
         the convection velocities u(x,y) and v(x,y)\n
-        Pe [u, v]∘∇T = ∇²T ∀(x,y)∈[0,L_x]×[0,L_y]\n
+        Pe [u, v]∘∇T = ∇²T\n
         with either DIRICHLET or homogenous NEUMANN conditions\n
         T(0,y)   = T_W or ∂ₙT(0,y)   = 0 ∀y∈[0,L_y]\n
         T(L_x,y) = T_E or ∂ₙT(L_x,y) = 0 ∀y∈[0,L_y]\n
@@ -30,7 +30,7 @@ class ConvectionDiffusionSolver:
         :param T_S: DIRICHLET value or None for homogeneous NEUMANN
         :param T_N: DIRICHLET value or None for homogeneous NEUMANN
         :param mtol: tolerance on root mean square residuals for JACOBI inversion
-        :param iprint: list of infos to print TODO desc
+        :param iprint: list of infos to print; 'LGMRES_iter': LGMRES iteration, 'LGMRES_suc': LGMRES success
         """
         self._iprint = iprint
 
@@ -145,7 +145,7 @@ class ConvectionDiffusionSolver:
 
         dT, info = linalg.lgmres(A=lhs_LO, b=dres, M=None, x0=dT0,
                                  atol=self._mtol*np.sqrt(self.N), tol=0,
-                                 inner_m=int(self.N*0.3), callback=print_res)  # TODO set realistic inner_m
+                                 inner_m=int(self.N*0.3), callback=print_res)  # not a realistic inner_m
         if info != 0:
             raise RuntimeError(f'ConvectionDiffusion LGMRES: Failed to converge in {info} iterations')
 
